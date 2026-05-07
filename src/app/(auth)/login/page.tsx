@@ -1,22 +1,51 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "../../../services/api";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 
-export default function LoginPage() {
+type LoginResponse = {
+  token: string;
+};
+
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const expiredMessage =
+    searchParams.get("expired") === "1"
+      ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+      : "";
 
   // state form
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   // state UI
-  const [error, setError] = useState("");
+  const [error, setError] = useState(expiredMessage);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      return;
+    }
+
+    const checkToken = async () => {
+      try {
+        await api("/users/me");
+        router.replace("/");
+      } catch {
+        localStorage.removeItem("token");
+      }
+    };
+
+    void checkToken();
+  }, [router]);
 
   // validate dữ liệu nhập
   const validate = () => {
@@ -42,7 +71,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await api("/users/login", "POST", {
+      const res = await api<LoginResponse>("/users/login", "POST", {
         email,
         password,
       });
@@ -102,8 +131,11 @@ export default function LoginPage() {
                 Quản lý chi tiêu thông minh. Tiêu gì cũng biết.
               </p>
 
-              <img
+              <Image
                 src="/finance.png"
+                alt="Minh hoa quan ly tai chinh"
+                width={320}
+                height={320}
                 className="w-[320px] drop-shadow-2xl"
               />
             </div>
@@ -184,5 +216,17 @@ export default function LoginPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen w-full bg-gradient-to-br from-orange-500 via-orange-300 to-white" />
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }

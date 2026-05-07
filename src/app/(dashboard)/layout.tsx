@@ -1,27 +1,9 @@
-"use client";
+import MainLayout from "@/components/layout/MainLayout";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Sidebar from "../../components/layout/Sidebar";
+type DashboardLayoutProps = Readonly<{
+  children: React.ReactNode;
+}>;
 
-export default function DashboardLayout({ children }: any) {
-  const router = useRouter();
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      router.push("/login");
-    }
-  }, []);
-
-  return (
-    <div className="flex">
-      <Sidebar />
-
-      <main className="ml-64 flex-1 p-6 bg-gray-100 min-h-screen">
-        {children}
-      </main>
-    </div>
-  );
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  return <MainLayout>{children}</MainLayout>;
 }
