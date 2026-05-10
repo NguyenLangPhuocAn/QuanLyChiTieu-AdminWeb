@@ -98,8 +98,16 @@ function LoginContent() {
 
       // chuyển trang
       router.push("/");
-    } catch {
-      setError("Không thể kết nối server");
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "Không thể kết nối server";
+
+      setError(
+        message.toLowerCase().includes("fetch") ||
+          message.toLowerCase().includes("network")
+          ? "Không thể kết nối server"
+          : message || "Sai email hoặc mật khẩu"
+      );
     } finally {
       setLoading(false);
     }
