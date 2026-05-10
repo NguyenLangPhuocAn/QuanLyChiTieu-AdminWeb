@@ -305,6 +305,16 @@ export default function StatisticsPage() {
     },
     { label: "Người dùng", value: formatNumber(data.totalUsers), note: "" },
     { label: "Giao dịch", value: formatNumber(data.totalTransactions), note: "" },
+    {
+      label: "Basic chạm giới hạn",
+      value: formatNumber(data.statistics.subscriptionStats.basicAtWalletLimit),
+      note: `${data.statistics.subscriptionStats.basicLimitRate}% Basic đã dùng 2 ví`,
+    },
+    {
+      label: "Premium dùng ví",
+      value: data.statistics.subscriptionStats.premiumAverageWallets.toFixed(1),
+      note: "Số ví trung bình mỗi Premium",
+    },
   ];
 
   return (
@@ -314,7 +324,6 @@ export default function StatisticsPage() {
           <div>
             <p className="text-sm font-medium text-orange-600">Bộ lọc thời gian</p>
             <p className="mt-1 text-sm text-slate-500">
-              Chọn nhanh theo ngày, tuần, tháng, quý hoặc năm. Hệ thống tự tính khoảng thời gian phù hợp.
             </p>
           </div>
 

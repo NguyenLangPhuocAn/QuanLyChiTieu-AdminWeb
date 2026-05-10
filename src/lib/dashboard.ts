@@ -90,6 +90,17 @@ export type NormalizedDashboard = {
       total: number;
     }>;
     walletHealth: Array<{ name: string; value: number }>;
+    subscriptionStats: {
+      basicUsers: number;
+      premiumUsers: number;
+      adminUsers: number;
+      premiumRate: number;
+      basicAtWalletLimit: number;
+      basicNoWallet: number;
+      basicLimitRate: number;
+      premiumAverageWallets: number;
+      upgradeOpportunityUsers: number;
+    };
   };
 };
 
@@ -227,6 +238,7 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
   const yearPeriod = objectFrom(periods.year);
   const selectedPeriod = String(raw.selected_period ?? statistics.selectedPeriod ?? "month") as PeriodKey;
   const rawPeriodChart = raw.period_chart ?? statistics.periodChart ?? statistics.period_chart;
+  const subscriptionStats = objectFrom(statistics.subscriptionStats);
 
   return {
     displayCurrency: String(raw.display_currency ?? statistics.display_currency ?? "VND"),
@@ -296,6 +308,17 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
             { name: "Ví âm", value: negativeWallets },
             { name: "Vượt hạn mức", value: overBudgetWallets },
           ],
+      subscriptionStats: {
+        basicUsers: numberFrom(subscriptionStats.basicUsers ?? basicUsers),
+        premiumUsers: numberFrom(subscriptionStats.premiumUsers ?? premiumUsers),
+        adminUsers: numberFrom(subscriptionStats.adminUsers ?? adminUsers),
+        premiumRate: numberFrom(subscriptionStats.premiumRate ?? premiumRate),
+        basicAtWalletLimit: numberFrom(subscriptionStats.basicAtWalletLimit),
+        basicNoWallet: numberFrom(subscriptionStats.basicNoWallet),
+        basicLimitRate: numberFrom(subscriptionStats.basicLimitRate),
+        premiumAverageWallets: numberFrom(subscriptionStats.premiumAverageWallets),
+        upgradeOpportunityUsers: numberFrom(subscriptionStats.upgradeOpportunityUsers),
+      },
     },
   };
 }

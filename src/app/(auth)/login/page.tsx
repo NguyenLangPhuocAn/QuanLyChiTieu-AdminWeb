@@ -11,6 +11,7 @@ type LoginResponse = {
   token: string;
   accessToken?: string;
   refreshToken?: string;
+  mustChangePassword?: boolean;
 };
 
 function LoginContent() {
@@ -95,6 +96,11 @@ function LoginContent() {
 
       // lưu token
       saveAuthTokens(res);
+
+      if (res.mustChangePassword) {
+        router.push("/change-password-first");
+        return;
+      }
 
       // chuyển trang
       router.push("/");

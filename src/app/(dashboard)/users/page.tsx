@@ -298,8 +298,8 @@ export default function UsersPage() {
   };
 
   const openCreateModal = () => {
-    if (!isSuperAdmin) {
-      setError("Chỉ admin tổng mới được thêm người dùng từ trang quản trị.");
+    if (currentUser?.role !== "ADMIN") {
+      setError("Bạn không có quyền thêm người dùng từ trang quản trị.");
       return;
     }
 
@@ -394,7 +394,7 @@ export default function UsersPage() {
       return true;
     }
 
-    return currentUser?.id === user.id;
+    return currentUser?.id === user.id || user.role !== "ADMIN";
   };
 
   const canDeleteUser = (user: UserListItem) => {
@@ -410,8 +410,8 @@ export default function UsersPage() {
     : isSuperAdmin && selectedUser?.id !== currentUser?.id;
 
   const handleCreate = async () => {
-    if (!formState.email.trim() || !formState.password || !formState.confirmPassword) {
-      setModalError("Vui lòng nhập email, mật khẩu và xác nhận mật khẩu.");
+    if (!formState.email.trim()) {
+      setModalError("Vui lòng nhập email.");
       return;
     }
 
@@ -424,22 +424,14 @@ export default function UsersPage() {
       setSubmitting(true);
       setModalError("");
 
-      const createdUser = await api<UserListItem>("/users", "POST", {
+      const createdUser = await api<UserListItem>("/users/admin", "POST", {
         email: formState.email.trim(),
-        password: formState.password,
-        confirmPassword: formState.confirmPassword,
+        role: formState.role,
+        full_name: formState.full_name.trim() || undefined,
+        phone: formState.phone.trim() || undefined,
+        birthday: formState.birthday || undefined,
+        address: formState.address.trim() || undefined,
       });
-
-      const needsExtraUpdate =
-        formState.role !== "BASIC" ||
-        Boolean(formState.full_name.trim()) ||
-        Boolean(formState.phone.trim()) ||
-        Boolean(formState.birthday) ||
-        Boolean(formState.address.trim());
-
-      if (needsExtraUpdate) {
-        await api(`/users/detail/${createdUser.id}`, "PUT", buildUpdatePayload(formState));
-      }
 
       if (avatarFile) {
         await apiUploadFile(`/users/detail/${createdUser.id}/avatar`, avatarFile);
@@ -727,55 +719,59 @@ export default function UsersPage() {
                     ) : null}
                   </label>
 
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium text-slate-700">
-                      Mật khẩu {modalMode === "edit" ? "mới" : ""}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        value={formState.password}
-                        onChange={(event) => updateField("password", event.target.value)}
-                        className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
-                        placeholder={
-                          modalMode === "edit"
-                            ? "Để trống nếu không đổi mật khẩu"
-                            : "Nhập mật khẩu"
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((current) => !current)}
-                        className="shrink-0 rounded-xl border border-orange-200 px-3 py-3 text-sm font-medium text-orange-700 transition hover:bg-orange-50"
-                      >
-                        {showPassword ? "Ẩn" : "Hiện"}
-                      </button>
-                    </div>
-                  </label>
+                  {modalMode === "edit" ? (
+                    <>
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium text-slate-700">
+                          Mật khẩu mới
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            value={formState.password}
+                            onChange={(event) => updateField("password", event.target.value)}
+                            className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                            placeholder="Để trống nếu không đổi mật khẩu"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((current) => !current)}
+                            className="shrink-0 rounded-xl border border-orange-200 px-3 py-3 text-sm font-medium text-orange-700 transition hover:bg-orange-50"
+                          >
+                            {showPassword ? "Ẩn" : "Hiện"}
+                          </button>
+                        </div>
+                      </label>
 
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium text-slate-700">
-                      Xác nhận mật khẩu
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={formState.confirmPassword}
-                        onChange={(event) =>
-                          updateField("confirmPassword", event.target.value)
-                        }
-                        className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
-                        placeholder="Nhập lại mật khẩu"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword((current) => !current)}
-                        className="shrink-0 rounded-xl border border-orange-200 px-3 py-3 text-sm font-medium text-orange-700 transition hover:bg-orange-50"
-                      >
-                        {showConfirmPassword ? "Ẩn" : "Hiện"}
-                      </button>
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium text-slate-700">
+                          Xác nhận mật khẩu
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={formState.confirmPassword}
+                            onChange={(event) =>
+                              updateField("confirmPassword", event.target.value)
+                            }
+                            className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                            placeholder="Nhập lại mật khẩu"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword((current) => !current)}
+                            className="shrink-0 rounded-xl border border-orange-200 px-3 py-3 text-sm font-medium text-orange-700 transition hover:bg-orange-50"
+                          >
+                            {showConfirmPassword ? "Ẩn" : "Hiện"}
+                          </button>
+                        </div>
+                      </label>
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800 md:col-span-2">
+                      Hệ thống sẽ tự tạo mật khẩu tạm và gửi tới email này. Người dùng phải đổi mật khẩu trong lần đăng nhập đầu tiên.
                     </div>
-                  </label>
+                  )}
 
                   <label className="space-y-2">
                     <span className="text-sm font-medium text-slate-700">Họ và tên</span>
