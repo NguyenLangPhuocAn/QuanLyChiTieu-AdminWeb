@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { api } from "@/services/api";
+import { api, clearAuthTokens } from "@/services/api";
 
 const menuItems = [
   {
@@ -37,13 +37,15 @@ export default function Sidebar() {
   const router = useRouter();
 
   const handleLogout = async () => {
+    const refreshToken = localStorage.getItem("refreshToken");
+
     try {
-      await api("/users/logout", "POST");
+      await api("/users/logout", "POST", { refreshToken });
     } catch {
       // Vẫn cho đăng xuất ở client nếu backend không phản hồi.
     }
 
-    localStorage.removeItem("token");
+    clearAuthTokens();
     router.replace("/login");
   };
 

@@ -3,12 +3,14 @@
 import { Suspense, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "../../../services/api";
+import { api, clearAuthTokens, saveAuthTokens } from "../../../services/api";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 
 type LoginResponse = {
   token: string;
+  accessToken?: string;
+  refreshToken?: string;
 };
 
 function LoginContent() {
@@ -40,7 +42,7 @@ function LoginContent() {
         await api("/users/me");
         router.replace("/");
       } catch {
-        localStorage.removeItem("token");
+        clearAuthTokens();
       }
     };
 
@@ -83,7 +85,8 @@ function LoginContent() {
       }
 
       // decode token để kiểm tra role
-      const payload = JSON.parse(atob(res.token.split(".")[1]));
+      const accessToken = res.accessToken ?? res.token;
+      const payload = JSON.parse(atob(accessToken.split(".")[1]));
 
       if (payload.role !== "ADMIN") {
         setError("Sai email hoặc mật khẩu");
@@ -91,7 +94,7 @@ function LoginContent() {
       }
 
       // lưu token
-      localStorage.setItem("token", res.token);
+      saveAuthTokens(res);
 
       // chuyển trang
       router.push("/");

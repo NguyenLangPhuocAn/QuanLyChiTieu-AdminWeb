@@ -21,19 +21,26 @@ import {
 import { api } from "@/services/api";
 
 const periodLabels: Record<PeriodKey, string> = {
+  all: "Tất cả",
   day: "Ngày",
   week: "Tuần",
   month: "Tháng",
+  quarter: "Quý",
   year: "Năm",
 };
 
 const pieColors = ["#16a34a", "#f97316", "#ef4444", "#0ea5e9", "#8b5cf6", "#f59e0b"];
 type CategoryView = "ALL" | "INCOME" | "EXPENSE";
+type PeriodOption = {
+  value: string;
+  label: string;
+  caption?: string;
+};
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
-    currency: "VND",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -47,6 +54,116 @@ function getTodayInputValue() {
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60_000);
   return local.toISOString().slice(0, 10);
+}
+
+function toLocalDateValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function startOfWeek(date: Date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay();
+  start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function startOfQuarter(date: Date) {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+}
+
+function formatShortDate(date: Date) {
+  return `${`${date.getDate()}`.padStart(2, "0")}/${`${date.getMonth() + 1}`.padStart(2, "0")}`;
+}
+
+function getISOWeek(date: Date) {
+  const current = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = current.getUTCDay() || 7;
+  current.setUTCDate(current.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(current.getUTCFullYear(), 0, 1));
+
+  return Math.ceil(((current.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+}
+
+function buildPeriodOptions(period: PeriodKey): PeriodOption[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (period === "all") {
+    return [];
+  }
+
+  if (period === "day") {
+    return Array.from({ length: 45 }, (_, index) => {
+      const date = addDays(today, -index);
+
+      return {
+        value: toLocalDateValue(date),
+        label: formatShortDate(date),
+        caption: date.getFullYear().toString(),
+      };
+    });
+  }
+
+  if (period === "week") {
+    const currentStart = startOfWeek(today);
+
+    return Array.from({ length: 32 }, (_, index) => {
+      const start = addDays(currentStart, -index * 7);
+      const end = addDays(start, 6);
+
+      return {
+        value: toLocalDateValue(start),
+        label: `Tuần ${getISOWeek(start)}`,
+        caption: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+      };
+    });
+  }
+
+  if (period === "month") {
+    return Array.from({ length: 24 }, (_, index) => {
+      const date = new Date(today.getFullYear(), today.getMonth() - index, 1);
+
+      return {
+        value: toLocalDateValue(date),
+        label: `Tháng ${date.getMonth() + 1}/${date.getFullYear()}`,
+      };
+    });
+  }
+
+  if (period === "quarter") {
+    const currentStart = startOfQuarter(today);
+
+    return Array.from({ length: 16 }, (_, index) => {
+      const start = new Date(currentStart.getFullYear(), currentStart.getMonth() - index * 3, 1);
+      const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
+
+      return {
+        value: toLocalDateValue(start),
+        label: `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`,
+        caption: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+      };
+    });
+  }
+
+  return Array.from({ length: 8 }, (_, index) => {
+    const date = new Date(today.getFullYear() - index, 0, 1);
+
+    return {
+      value: toLocalDateValue(date),
+      label: date.getFullYear().toString(),
+    };
+  });
 }
 
 function EmptyOverlay() {
@@ -66,13 +183,20 @@ export default function StatisticsPage() {
   const [data, setData] = useState<NormalizedDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const periodOptions = useMemo(() => buildPeriodOptions(period), [period]);
+
+  const handlePeriodChange = (nextPeriod: PeriodKey) => {
+    setPeriod(nextPeriod);
+    setSelectedDate(buildPeriodOptions(nextPeriod)[0]?.value ?? getTodayInputValue());
+  };
 
   useEffect(() => {
     const loadStatistics = async () => {
       try {
+        setLoading(true);
         setError("");
         const response = await api<unknown>(
-          `/admin/dashboard?date=${selectedDate}`
+          `/admin/dashboard?date=${selectedDate}&period=${period}`
         );
         setData(normalizeDashboard(response));
       } catch (caughtError) {
@@ -83,7 +207,7 @@ export default function StatisticsPage() {
     };
 
     void loadStatistics();
-  }, [selectedDate]);
+  }, [selectedDate, period]);
 
   const selectedSummary = data?.statistics.periods[period];
   const hasSelectedTransactions = Boolean(selectedSummary?.transactionCount);
@@ -138,9 +262,9 @@ export default function StatisticsPage() {
     return category.income > 0 || category.expense > 0;
   });
   const hasCategoryData = filteredCategorySource.length > 0;
-  const trendData = data.chart.length
-    ? data.chart
-    : [{ month: "-", income: data.totalIncome, expense: data.totalExpense }];
+  const trendData = data.periodChart.length
+    ? data.periodChart
+    : [{ label: "-", income: data.totalIncome, expense: data.totalExpense }];
   const incomeCategories = selectedCategories
     .filter((category) => category.income > 0)
     .sort((left, right) => right.income - left.income)
@@ -157,15 +281,15 @@ export default function StatisticsPage() {
       }))
     : [{ name: "-", Thu: 0, Chi: 0 }];
   const overviewCards = [
-    { label: "Tổng thu", value: formatCurrency(selectedSummary.income), note: periodLabels[period] },
+    { label: "Tổng thu", value: formatCurrency(selectedSummary.income, data.displayCurrency), note: periodLabels[period] },
     {
       label: "Tổng chi",
-      value: formatCurrency(selectedSummary.expense),
+      value: formatCurrency(selectedSummary.expense, data.displayCurrency),
       note: `${selectedSummary.expenseToIncomeRate}%`,
     },
     {
       label: "Dòng tiền ròng",
-      value: formatCurrency(selectedSummary.net),
+      value: formatCurrency(selectedSummary.net, data.displayCurrency),
       note: selectedSummary.net >= 0 ? "+" : "-",
     },
     {
@@ -175,7 +299,7 @@ export default function StatisticsPage() {
     },
     { label: "Ví âm", value: formatNumber(data.negativeWallets), note: "" },
     {
-      label: "Ví vượt ngân sách",
+      label: "Ví vượt hạn mức",
       value: formatNumber(data.overBudgetWallets),
       note: "",
     },
@@ -186,41 +310,63 @@ export default function StatisticsPage() {
   return (
     <section className="space-y-6">
       <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4">
           <div>
-            <p className="text-sm font-medium text-orange-600">Ngày thống kê</p>
+            <p className="text-sm font-medium text-orange-600">Bộ lọc thời gian</p>
             <p className="mt-1 text-sm text-slate-500">
-              Chọn ngày để xem thống kê ngày đó và dùng làm mốc cho tuần, tháng, năm.
+              Chọn nhanh theo ngày, tuần, tháng, quý hoặc năm. Hệ thống tự tính khoảng thời gian phù hợp.
             </p>
           </div>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(event) => {
-              setSelectedDate(event.target.value);
-              setPeriod("day");
-            }}
-            className="rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-orange-400"
-          />
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-orange-100 bg-orange-50 p-1">
-        {(Object.keys(periodLabels) as PeriodKey[]).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setPeriod(item)}
-            className={[
-              "rounded-xl px-4 py-2 text-sm font-semibold transition",
-              period === item
-                ? "bg-white text-orange-700 shadow-sm"
-                : "text-slate-600 hover:bg-white/70",
-            ].join(" ")}
-          >
-            {periodLabels[item]}
-          </button>
-        ))}
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-orange-100 bg-orange-50 p-1">
+            {(Object.keys(periodLabels) as PeriodKey[]).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => handlePeriodChange(item)}
+                className={[
+                  "rounded-xl px-4 py-2 text-sm font-semibold transition",
+                  period === item
+                    ? "bg-white text-orange-700 shadow-sm"
+                    : "text-slate-600 hover:bg-white/70",
+                ].join(" ")}
+              >
+                {periodLabels[item]}
+              </button>
+            ))}
+          </div>
+
+          {periodOptions.length > 0 ? (
+            <div className="-mx-1 overflow-x-auto px-1 pb-1">
+              <div className="flex min-w-max gap-2">
+                {periodOptions.map((option) => {
+                  const isActive = selectedDate === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSelectedDate(option.value)}
+                      className={[
+                        "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                        isActive
+                          ? "border-orange-400 bg-orange-500 text-white shadow-sm"
+                          : "border-orange-100 bg-white text-slate-700 hover:border-orange-300",
+                      ].join(" ")}
+                    >
+                      <span className="block font-bold">{option.label}</span>
+                      {option.caption ? (
+                        <span className={["mt-1 block text-xs", isActive ? "text-orange-50" : "text-slate-500"].join(" ")}>
+                          {option.caption}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -245,7 +391,7 @@ export default function StatisticsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
                 <XAxis dataKey="name" />
                 <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
                 <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                   {cashFlowData.map((entry, index) => (
                     <Cell
@@ -303,7 +449,7 @@ export default function StatisticsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
                 <XAxis dataKey="name" />
                 <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
                 <Bar dataKey="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
                 <Bar dataKey="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
               </BarChart>
@@ -327,7 +473,7 @@ export default function StatisticsPage() {
                   >
                     <span className="font-medium text-slate-800">{category.name}</span>
                     <span className="font-bold text-emerald-700">
-                      {formatCurrency(category.income)}
+                      {formatCurrency(category.income, data.displayCurrency)}
                     </span>
                   </div>
                 ))
@@ -348,7 +494,7 @@ export default function StatisticsPage() {
                   >
                     <span className="font-medium text-slate-800">{category.name}</span>
                     <span className="font-bold text-orange-700">
-                      {formatCurrency(category.expense)}
+                      {formatCurrency(category.expense, data.displayCurrency)}
                     </span>
                   </div>
                 ))
@@ -364,9 +510,9 @@ export default function StatisticsPage() {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
-              <XAxis dataKey="month" />
+              <XAxis dataKey="label" />
               <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
-              <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+              <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
               <Bar dataKey="income" name="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
               <Bar dataKey="expense" name="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
             </BarChart>

@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { API_URL, api, apiUploadFile } from "@/services/api";
 
 type UserListItem = {
@@ -43,6 +43,7 @@ const defaultFormState: UserFormState = {
 };
 
 const roleOptions = ["BASIC", "PREMIUM", "ADMIN"] as const;
+const SUPER_ADMIN_EMAIL = "admin@gmail.com";
 type UserSortOption =
   | "NAME_ASC"
   | "NAME_DESC"
@@ -83,7 +84,6 @@ function isValidPhoneNumber(phone: string) {
 
 function buildUpdatePayload(form: UserFormState) {
   return {
-    email: form.email.trim(),
     role: form.role,
     full_name: form.full_name.trim() || undefined,
     phone: form.phone.trim() || undefined,
@@ -180,6 +180,7 @@ function exportUsersToCsv(users: UserListItem[]) {
 export default function UsersPage() {
   // Dữ liệu danh sách và trạng thái lọc của màn hình người dùng.
   const [users, setUsers] = useState<UserListItem[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserListItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchText, setSearchText] = useState("");
@@ -196,13 +197,30 @@ export default function UsersPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [showEditConfirm, setShowEditConfirm] = useState(false);
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+  const avatarPreviewUrl = useMemo(
+    () => (avatarFile ? URL.createObjectURL(avatarFile) : ""),
+    [avatarFile]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
 
   // Lấy danh sách cơ bản rồi nối thêm chi tiết từng người dùng để hiển thị đủ thông tin.
   const loadUsers = async () => {
     try {
       setError("");
 
-      const data = await api<UserListItem[]>("/users");
+      const [me, data] = await Promise.all([
+        api<UserListItem>("/users/me"),
+        api<UserListItem[]>("/users"),
+      ]);
+      setCurrentUser(me);
       const usersWithDetail = await Promise.all(
         data.map(async (user) => {
           try {
@@ -280,6 +298,11 @@ export default function UsersPage() {
   };
 
   const openCreateModal = () => {
+    if (!isSuperAdmin) {
+      setError("Chỉ admin tổng mới được thêm người dùng từ trang quản trị.");
+      return;
+    }
+
     setModalError("");
     setSelectedUser(null);
     setFormState(defaultFormState);
@@ -287,12 +310,22 @@ export default function UsersPage() {
   };
 
   const openDeleteModal = (user: UserListItem) => {
+    if (!canDeleteUser(user)) {
+      setError("Bạn không có quyền xóa người dùng này.");
+      return;
+    }
+
     setModalError("");
     setSelectedUser(user);
     setModalMode("delete");
   };
 
   const openEditModal = async (user: UserListItem) => {
+    if (!canEditUser(user)) {
+      setError("Bạn không có quyền sửa người dùng này.");
+      return;
+    }
+
     try {
       setSubmitting(true);
       setModalError("");
@@ -330,6 +363,51 @@ export default function UsersPage() {
       [field]: value,
     }));
   };
+
+  const handleAvatarFileChange = (file?: File | null) => {
+    if (!file) {
+      setAvatarFile(null);
+      return;
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxSize = 3 * 1024 * 1024;
+
+    if (!allowedTypes.includes(file.type)) {
+      setModalError("Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP.");
+      setAvatarFile(null);
+      return;
+    }
+
+    if (file.size > maxSize) {
+      setModalError("Ảnh không được vượt quá 3MB.");
+      setAvatarFile(null);
+      return;
+    }
+
+    setModalError("");
+    setAvatarFile(file);
+  };
+
+  const canEditUser = (user: UserListItem) => {
+    if (isSuperAdmin) {
+      return true;
+    }
+
+    return currentUser?.id === user.id;
+  };
+
+  const canDeleteUser = (user: UserListItem) => {
+    if (!isSuperAdmin) {
+      return false;
+    }
+
+    return currentUser?.id !== user.id && user.email.toLowerCase() !== SUPER_ADMIN_EMAIL;
+  };
+
+  const canEditRole = modalMode === "create"
+    ? isSuperAdmin
+    : isSuperAdmin && selectedUser?.id !== currentUser?.id;
 
   const handleCreate = async () => {
     if (!formState.email.trim() || !formState.password || !formState.confirmPassword) {
@@ -527,10 +605,10 @@ export default function UsersPage() {
   };
 
   const renderAvatarPreview = () => {
-    if (avatarFile) {
+    if (avatarPreviewUrl) {
       return (
         <img
-          src={URL.createObjectURL(avatarFile)}
+          src={avatarPreviewUrl}
           alt={formState.full_name || formState.email}
           className="h-16 w-16 rounded-2xl object-cover"
         />
@@ -611,9 +689,18 @@ export default function UsersPage() {
                     <input
                       value={formState.email}
                       onChange={(event) => updateField("email", event.target.value)}
-                      className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                      readOnly={modalMode === "edit"}
+                      className={[
+                        "w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400",
+                        modalMode === "edit" ? "bg-slate-50 text-slate-500" : "",
+                      ].join(" ")}
                       placeholder="email@example.com"
                     />
+                    {modalMode === "edit" ? (
+                      <span className="text-xs text-slate-500">
+                        Email chỉ được xem, không thể thay đổi.
+                      </span>
+                    ) : null}
                   </label>
 
                   <label className="space-y-2">
@@ -621,7 +708,11 @@ export default function UsersPage() {
                     <select
                       value={formState.role}
                       onChange={(event) => updateField("role", event.target.value)}
-                      className="w-full rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                      disabled={!canEditRole}
+                      className={[
+                        "w-full rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm outline-none transition focus:border-orange-400",
+                        !canEditRole ? "cursor-not-allowed bg-slate-50 text-slate-500" : "",
+                      ].join(" ")}
                     >
                       {roleOptions.map((role) => (
                         <option key={role} value={role}>
@@ -629,6 +720,11 @@ export default function UsersPage() {
                         </option>
                       ))}
                     </select>
+                    {!canEditRole ? (
+                      <span className="text-xs text-slate-500">
+                        Chỉ admin tổng được đổi role admin khác.
+                      </span>
+                    ) : null}
                   </label>
 
                   <label className="space-y-2">
@@ -725,7 +821,7 @@ export default function UsersPage() {
                       type="file"
                       accept=".jpg,.jpeg,.png,.webp"
                       onChange={(event) =>
-                        setAvatarFile(event.target.files?.[0] ?? null)
+                        handleAvatarFileChange(event.target.files?.[0] ?? null)
                       }
                       className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition file:mr-3 file:rounded-xl file:border-0 file:bg-orange-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-orange-700"
                     />
@@ -874,6 +970,7 @@ export default function UsersPage() {
               <button
                 type="button"
                 onClick={openCreateModal}
+                disabled={!isSuperAdmin}
                 className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
               >
                 + Thêm người dùng
@@ -944,7 +1041,11 @@ export default function UsersPage() {
                 </thead>
 
                 <tbody>
-                  {sortedUsers.map((user) => (
+                  {sortedUsers.map((user) => {
+                    const editable = canEditUser(user);
+                    const deletable = canDeleteUser(user);
+
+                    return (
                     <tr
                       key={user.id}
                       className="border-t border-orange-200 text-sm text-slate-700"
@@ -986,7 +1087,7 @@ export default function UsersPage() {
                           <button
                             type="button"
                             onClick={() => void openEditModal(user)}
-                            disabled={submitting && selectedUser?.id === user.id}
+                            disabled={!editable || (submitting && selectedUser?.id === user.id)}
                             className="rounded-xl border border-orange-200 px-3 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Sửa
@@ -994,14 +1095,16 @@ export default function UsersPage() {
                           <button
                             type="button"
                             onClick={() => openDeleteModal(user)}
-                            className="rounded-xl border border-red-200 bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                            disabled={!deletable}
+                            className="rounded-xl border border-red-200 bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Xóa
                           </button>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>

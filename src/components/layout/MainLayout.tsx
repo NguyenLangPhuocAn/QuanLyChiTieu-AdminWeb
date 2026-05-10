@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/layout/Header";
 import Sidebar from "@/components/layout/Sidebar";
-import { api } from "@/services/api";
+import { api, clearAuthTokens } from "@/services/api";
 
 type MainLayoutProps = Readonly<{
   children: React.ReactNode;
@@ -40,7 +40,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         await api("/users/me");
       } catch {
         // Token sai/hết hạn: xóa token để tránh lặp và đưa về trang login.
-        localStorage.removeItem("token");
+        clearAuthTokens();
 
         if (!cancelled) {
           router.replace("/login");

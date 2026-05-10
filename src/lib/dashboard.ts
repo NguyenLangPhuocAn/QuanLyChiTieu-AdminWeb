@@ -6,7 +6,7 @@ export type DashboardInsight = {
   severity: InsightSeverity;
 };
 
-export type PeriodKey = "day" | "week" | "month" | "year";
+export type PeriodKey = "all" | "day" | "week" | "month" | "quarter" | "year";
 
 export type PeriodSummary = {
   income: number;
@@ -27,7 +27,21 @@ export type PeriodSummary = {
   }>;
 };
 
+export type PeriodChartPoint = {
+  label: string;
+  start?: string;
+  end?: string;
+  income: number;
+  expense: number;
+  net?: number;
+  transactionCount?: number;
+};
+
 export type NormalizedDashboard = {
+  displayCurrency: string;
+  exchangeProvider?: string;
+  exchangeProviderDocs?: string;
+  exchangeAttributionUrl?: string;
   totalUsers: number;
   premiumUsers: number;
   basicUsers: number;
@@ -43,6 +57,16 @@ export type NormalizedDashboard = {
   premiumRate: number;
   averageWalletBalance: number;
   chart: Array<{ month: string; income: number; expense: number }>;
+  periodChart: PeriodChartPoint[];
+  selectedPeriod: PeriodKey;
+  periodRange?: { start: string; end: string };
+  previousPeriodRange?: { start: string; end: string };
+  comparison?: {
+    income: number;
+    expense: number;
+    net: number;
+    transactionCount: number;
+  };
   recentLogs: Array<{
     id: number;
     admin_id?: number | null;
@@ -139,7 +163,7 @@ export function buildDashboardInsights(input: {
   if (input.totalExpense >= input.totalIncome * 0.9 && (input.totalIncome > 0 || input.totalExpense > 0)) {
     insights.push({
       title: "Gợi ý 2: Thu/Chi",
-      message: `Chi hiện chiếm ${expenseRate}% thu → cần kiểm tra chi tiêu bất thường.`,
+      message: `Chi tiêu hiện chiếm ${expenseRate}% thu `,
       severity: input.totalExpense >= input.totalIncome ? "danger" : "warning",
     });
   }
@@ -147,15 +171,15 @@ export function buildDashboardInsights(input: {
   if (input.negativeWallets > 0) {
     insights.push({
       title: "Gợi ý 3: Ví âm",
-      message: `Có ${input.negativeWallets} ví đang âm → cần cảnh báo người dùng.`,
+      message: `Có ${input.negativeWallets} ví đang âm `,
       severity: "danger",
     });
   }
 
   if (input.overBudgetWallets > 0) {
     insights.push({
-      title: "Gợi ý 4: Vượt budget",
-      message: `Có ${input.overBudgetWallets} ví vượt hạn mức → cần cảnh báo người dùng.`,
+      title: "Gợi ý 4: Vượt hạn mức",
+      message: `Có ${input.overBudgetWallets} ví vượt hạn mức.`,
       severity: "danger",
     });
   }
@@ -195,12 +219,22 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
   const overBudgetWallets = numberFrom(raw.over_budget_wallets ?? summary.overBudgetWallets);
   const premiumRate = totalUsers > 0 ? Math.round((premiumUsers / totalUsers) * 100) : 0;
   const fallbackPeriod = buildPeriod(totalIncome, totalExpense, totalTransactions);
+  const allPeriod = objectFrom(periods.all);
   const dayPeriod = objectFrom(periods.day);
   const monthPeriod = objectFrom(periods.month);
+  const quarterPeriod = objectFrom(periods.quarter);
   const weekPeriod = objectFrom(periods.week);
   const yearPeriod = objectFrom(periods.year);
+  const selectedPeriod = String(raw.selected_period ?? statistics.selectedPeriod ?? "month") as PeriodKey;
+  const rawPeriodChart = raw.period_chart ?? statistics.periodChart ?? statistics.period_chart;
 
   return {
+    displayCurrency: String(raw.display_currency ?? statistics.display_currency ?? "VND"),
+    exchangeProvider: typeof raw.exchange_provider === "string" ? raw.exchange_provider : undefined,
+    exchangeProviderDocs:
+      typeof raw.exchange_provider_docs === "string" ? raw.exchange_provider_docs : undefined,
+    exchangeAttributionUrl:
+      typeof raw.exchange_attribution_url === "string" ? raw.exchange_attribution_url : undefined,
     totalUsers,
     premiumUsers,
     basicUsers,
@@ -216,6 +250,19 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
     premiumRate,
     averageWalletBalance: numberFrom(raw.average_wallet_balance ?? summary.averageWalletBalance),
     chart: arrayFrom(raw.chart),
+    periodChart: arrayFrom<PeriodChartPoint>(rawPeriodChart).map((item) => ({
+      label: String(item.label ?? "-"),
+      start: typeof item.start === "string" ? item.start : undefined,
+      end: typeof item.end === "string" ? item.end : undefined,
+      income: numberFrom(item.income),
+      expense: numberFrom(item.expense),
+      net: numberFrom(item.net),
+      transactionCount: numberFrom(item.transactionCount),
+    })),
+    selectedPeriod,
+    periodRange: objectFrom(raw.period_range ?? statistics.periodRange) as { start: string; end: string },
+    previousPeriodRange: objectFrom(raw.previous_period_range ?? statistics.previousPeriodRange) as { start: string; end: string },
+    comparison: objectFrom(raw.comparison ?? statistics.comparison) as NormalizedDashboard["comparison"],
     recentLogs: arrayFrom(raw.recentLogs ?? raw.recent_logs),
     insights: buildDashboardInsights({
       premiumRate,
@@ -226,9 +273,11 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
     }),
     statistics: {
       periods: {
+        all: { ...fallbackPeriod, ...allPeriod },
         day: { ...fallbackPeriod, ...dayPeriod },
         week: { ...fallbackPeriod, ...weekPeriod },
         month: { ...fallbackPeriod, ...monthPeriod },
+        quarter: { ...fallbackPeriod, ...quarterPeriod },
         year: { ...fallbackPeriod, ...yearPeriod },
       },
       roleDistribution: arrayFrom(statistics.roleDistribution).length

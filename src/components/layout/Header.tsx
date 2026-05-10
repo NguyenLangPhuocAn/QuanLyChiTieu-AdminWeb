@@ -6,7 +6,7 @@ const pageTitles: Record<string, string> = {
   "/": "Tổng quan hệ thống",
   "/users": "Quản lý người dùng",
   "/categories": "Quản lý danh mục",
-  "/statistics": "Thống kê chuyên sâu",
+  "/statistics": "Thống kê",
   "/logs": "Logs hệ thống",
 };
 

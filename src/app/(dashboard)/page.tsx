@@ -13,10 +13,10 @@ import {
 import { normalizeDashboard, type InsightSeverity, type NormalizedDashboard } from "@/lib/dashboard";
 import { api } from "@/services/api";
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
-    currency: "VND",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -100,22 +100,22 @@ export default function DashboardPage() {
     {
       label: "Người dùng",
       value: data.totalUsers.toLocaleString("vi-VN"),
-      note: `${data.premiumUsers} tài khoản Premium · ${data.basicUsers} người dùng Basic`,
+      note: `${data.premiumUsers} Premium · ${data.basicUsers} Basic · ${data.premiumRate}% Premium`,
     },
     {
-      label: "Ví đang quản lý",
-      value: data.totalWallets.toLocaleString("vi-VN"),
-      note: `${data.negativeWallets} ví âm · ${data.overBudgetWallets} ví vượt budget`,
+      label: "Tổng số dư ví",
+      value: formatCurrency(data.totalBalance, data.displayCurrency),
+      note: `${data.totalWallets.toLocaleString("vi-VN")} ví · ${data.negativeWallets} ví âm · ${data.overBudgetWallets} ví vượt hạn mức`,
     },
     {
       label: "Tổng thu",
-      value: formatCurrency(data.totalIncome),
-      note: `Tỷ lệ Premium: ${data.premiumRate}%`,
+      value: formatCurrency(data.totalIncome, data.displayCurrency),
+      note: "Theo kỳ thống kê hiện tại",
     },
     {
       label: "Tổng chi",
-      value: formatCurrency(data.totalExpense),
-      note: `Tổng số dư ví: ${formatCurrency(data.totalBalance)}`,
+      value: formatCurrency(data.totalExpense, data.displayCurrency),
+      note: "Theo kỳ thống kê hiện tại",
     },
   ];
 
@@ -140,12 +140,28 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
                 <XAxis dataKey="month" />
                 <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
                 <Bar dataKey="income" name="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
                 <Bar dataKey="expense" name="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+          <p className="mt-4 text-xs text-slate-500">
+            Hiển thị theo {data.displayCurrency}. Tỷ giá từ{" "}
+            {data.exchangeAttributionUrl ? (
+              <a
+                className="text-orange-700 underline"
+                href={data.exchangeAttributionUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {data.exchangeProvider ?? "ExchangeRate-API"}
+              </a>
+            ) : (
+              data.exchangeProvider ?? "ExchangeRate-API"
+            )}
+            .
+          </p>
         </section>
 
         <aside className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
