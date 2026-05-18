@@ -4,6 +4,14 @@ const ACCESS_TOKEN_KEY = "token";
 const REFRESH_TOKEN_KEY = "refreshToken";
 const REFRESH_THRESHOLD_SECONDS = 4 * 60;
 
+const SESSION_EXPIRED_MESSAGE =
+  "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.";
+const NETWORK_ERROR_MESSAGE =
+  "Không thể kết nối hệ thống. Vui lòng kiểm tra mạng hoặc thử lại sau.";
+const SERVER_ERROR_MESSAGE =
+  "Hệ thống đang gặp sự cố. Vui lòng thử lại sau.";
+const GENERIC_ERROR_MESSAGE = "Có lỗi xảy ra. Vui lòng thử lại.";
+
 type TokenResponse = {
   token?: string;
   accessToken?: string;
@@ -71,6 +79,30 @@ function handleExpiredSession(status: number) {
   }
 }
 
+function getFriendlyMessage(status: number, data: unknown, fallback = GENERIC_ERROR_MESSAGE) {
+  if (status === 401 || status === 403) {
+    return SESSION_EXPIRED_MESSAGE;
+  }
+
+  if (status >= 500) {
+    return SERVER_ERROR_MESSAGE;
+  }
+
+  if (data && typeof data === "object" && "message" in data) {
+    const message = (data as { message?: string | string[] }).message;
+
+    if (Array.isArray(message)) {
+      return message.join(", ");
+    }
+
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+
+  return fallback;
+}
+
 async function refreshAccessToken() {
   const refreshToken = getRefreshToken();
 
@@ -88,7 +120,7 @@ async function refreshAccessToken() {
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
-          throw new Error(data?.message || "Phiên đăng nhập đã hết hạn");
+          throw new Error(getFriendlyMessage(res.status, data, SESSION_EXPIRED_MESSAGE));
         }
 
         saveAuthTokens(data);
@@ -96,7 +128,14 @@ async function refreshAccessToken() {
       })
       .catch((error) => {
         clearSession();
-        throw error;
+
+        if (error instanceof TypeError) {
+          throw new Error(NETWORK_ERROR_MESSAGE);
+        }
+
+        throw error instanceof Error
+          ? error
+          : new Error(SESSION_EXPIRED_MESSAGE);
       })
       .finally(() => {
         refreshPromise = null;
@@ -150,27 +189,29 @@ export const api = async <T>(
   method = "GET",
   body?: unknown
 ): Promise<T> => {
-  const res = await fetchWithAuth(endpoint, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+
+  try {
+    res = await fetchWithAuth(endpoint, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(NETWORK_ERROR_MESSAGE);
+    }
+
+    throw error instanceof Error ? error : new Error(GENERIC_ERROR_MESSAGE);
+  }
 
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
     handleExpiredSession(res.status);
-
-    const message =
-      data && typeof data === "object" && "message" in data
-        ? Array.isArray(data.message)
-          ? data.message.join(", ")
-          : String(data.message)
-        : "Có lỗi xảy ra khi gọi API.";
-
-    throw new Error(message);
+    throw new Error(getFriendlyMessage(res.status, data));
   }
 
   return data as T;
@@ -185,24 +226,28 @@ export const apiUploadFile = async <T>(
   const formData = new FormData();
   formData.append(fieldName, file);
 
-  const res = await fetchWithAuth(endpoint, {
-    method,
-    body: formData,
-  });
+  let res: Response;
+
+  try {
+    res = await fetchWithAuth(endpoint, {
+      method,
+      body: formData,
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(NETWORK_ERROR_MESSAGE);
+    }
+
+    throw error instanceof Error ? error : new Error(GENERIC_ERROR_MESSAGE);
+  }
 
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
     handleExpiredSession(res.status);
-
-    const message =
-      data && typeof data === "object" && "message" in data
-        ? Array.isArray(data.message)
-          ? data.message.join(", ")
-          : String(data.message)
-        : "Có lỗi xảy ra khi upload file.";
-
-    throw new Error(message);
+    throw new Error(
+      getFriendlyMessage(res.status, data, "Không thể tải tệp lên. Vui lòng thử lại.")
+    );
   }
 
   return data as T;

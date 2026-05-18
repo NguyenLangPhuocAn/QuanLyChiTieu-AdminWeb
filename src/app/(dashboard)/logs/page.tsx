@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FiRefreshCw } from "react-icons/fi";
 import { api } from "@/services/api";
 
 type AdminLog = {
@@ -10,9 +11,20 @@ type AdminLog = {
   created_at?: string | null;
 };
 
+type PaginatedResponse<T> = {
+  data: T[];
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
 type ActionFilter = "ALL" | "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "UPLOAD";
 type TargetFilter = "ALL" | "USER" | "CATEGORY" ;
 type TimeSortOption = "TIME_DESC" | "TIME_ASC";
+const PAGE_SIZE = 10;
 
 function formatDate(value?: string | null) {
   if (!value) {
@@ -73,12 +85,56 @@ export default function LogsPage() {
   const [targetFilter, setTargetFilter] = useState<TargetFilter>("ALL");
   const [dateFilter, setDateFilter] = useState("");
   const [sortOption, setSortOption] = useState<TimeSortOption>("TIME_DESC");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
 
-  const loadLogs = async () => {
+  const loadLogs = async (
+    overrides: Partial<{
+      page: number;
+      actionFilter: ActionFilter;
+      targetFilter: TargetFilter;
+      dateFilter: string;
+      sortOption: TimeSortOption;
+    }> = {}
+  ) => {
     try {
       setError("");
-      const response = await api<AdminLog[]>("/admin/logs");
-      setLogs(response);
+      const nextPage = overrides.page ?? page;
+      const nextActionFilter = overrides.actionFilter ?? actionFilter;
+      const nextTargetFilter = overrides.targetFilter ?? targetFilter;
+      const nextDateFilter = overrides.dateFilter ?? dateFilter;
+      const nextSortOption = overrides.sortOption ?? sortOption;
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(PAGE_SIZE),
+        sort: nextSortOption === "TIME_ASC" ? "time_asc" : "time_desc",
+      });
+
+      if (nextActionFilter !== "ALL") {
+        params.set("action", nextActionFilter);
+      }
+
+      if (nextTargetFilter !== "ALL") {
+        params.set("target", nextTargetFilter);
+      }
+
+      if (nextDateFilter) {
+        params.set("date", nextDateFilter);
+      }
+
+      const response = await api<AdminLog[] | PaginatedResponse<AdminLog>>(
+        `/admin/logs?${params.toString()}`
+      );
+      const nextLogs = Array.isArray(response) ? response : response.data;
+      setLogs(nextLogs);
+      setPagination(
+        Array.isArray(response)
+          ? { total: nextLogs.length, totalPages: Math.max(Math.ceil(nextLogs.length / PAGE_SIZE), 1) }
+          : {
+              total: response.meta?.total ?? nextLogs.length,
+              totalPages: response.meta?.totalPages ?? 1,
+            }
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -96,38 +152,35 @@ export default function LogsPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [actionFilter, dateFilter, page, sortOption, targetFilter]);
 
   const resetAndReload = async () => {
     setActionFilter("ALL");
     setTargetFilter("ALL");
     setDateFilter("");
     setSortOption("TIME_DESC");
+    setPage(1);
     setLoading(true);
-    await loadLogs();
+    await loadLogs({
+      page: 1,
+      actionFilter: "ALL",
+      targetFilter: "ALL",
+      dateFilter: "",
+      sortOption: "TIME_DESC",
+    });
   };
 
   const toggleTimeSort = () => {
+    setPage(1);
     setSortOption((current) => (current === "TIME_DESC" ? "TIME_ASC" : "TIME_DESC"));
   };
 
   const timeSortDirection = sortOption === "TIME_ASC" ? "ASC" : "DESC";
 
-  const filteredLogs = logs.filter((log) => {
-    const action = log.action || "";
-    const matchedAction = actionFilter === "ALL" || getActionGroup(action) === actionFilter;
-    const matchedTarget = targetFilter === "ALL" || getTargetGroup(action) === targetFilter;
-    const matchedDate = isSameDate(log.created_at, dateFilter);
-
-    return matchedAction && matchedTarget && matchedDate;
-  });
-  const sortedLogs = [...filteredLogs].sort((left, right) => {
-    const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
-    const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
-    const result = leftTime - rightTime;
-
-    return sortOption === "TIME_ASC" ? result : -result;
-  });
+  const sortedLogs = logs;
+  const totalPages = pagination.totalPages;
+  const paginatedLogs = logs;
+  const safePage = Math.min(page, totalPages);
 
   return (
     <section className="space-y-6">
@@ -136,8 +189,10 @@ export default function LogsPage() {
           <button
             type="button"
             onClick={() => void resetAndReload()}
-            className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100"
+            className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading}
           >
+            <FiRefreshCw className={loading ? "animate-spin" : ""} />
             Tải lại
           </button>
         </div>
@@ -161,7 +216,10 @@ export default function LogsPage() {
                       <div className="flex gap-2">
                         <select
                           value={actionFilter}
-                          onChange={(event) => setActionFilter(event.target.value as ActionFilter)}
+                          onChange={(event) => {
+                            setActionFilter(event.target.value as ActionFilter);
+                            setPage(1);
+                          }}
                           className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs normal-case text-slate-700 outline-none"
                         >
                           <option value="ALL">Tất cả</option>
@@ -175,7 +233,10 @@ export default function LogsPage() {
 
                         <select
                           value={targetFilter}
-                          onChange={(event) => setTargetFilter(event.target.value as TargetFilter)}
+                          onChange={(event) => {
+                            setTargetFilter(event.target.value as TargetFilter);
+                            setPage(1);
+                          }}
                           className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs normal-case text-slate-700 outline-none"
                         >
                           <option value="ALL">Tất cả mục</option>
@@ -201,7 +262,10 @@ export default function LogsPage() {
                       <input
                         type="date"
                         value={dateFilter}
-                        onChange={(event) => setDateFilter(event.target.value)}
+                        onChange={(event) => {
+                          setDateFilter(event.target.value);
+                          setPage(1);
+                        }}
                         className="w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs normal-case text-slate-700 outline-none"
                       />
                     </div>
@@ -216,7 +280,7 @@ export default function LogsPage() {
                     </td>
                   </tr>
                 ) : (
-                  sortedLogs.map((log) => (
+                  paginatedLogs.map((log) => (
                     <tr key={log.id} className="border-t border-orange-200 text-sm text-slate-700">
                       <td className="px-6 py-4 font-semibold text-slate-900">{log.id}</td>
                       <td className="px-6 py-4">{log.admin_id ?? "--"}</td>
@@ -227,6 +291,31 @@ export default function LogsPage() {
                 )}
               </tbody>
             </table>
+            {pagination.total > PAGE_SIZE ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 px-6 py-4 text-sm">
+                <span className="font-medium text-slate-600">
+                  Trang {safePage}/{totalPages} · {pagination.total} logs
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(current - 1, 1))}
+                    disabled={safePage === 1}
+                    className="rounded-xl border border-orange-200 px-4 py-2 font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Trước
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+                    disabled={safePage === totalPages}
+                    className="rounded-xl border border-orange-200 px-4 py-2 font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

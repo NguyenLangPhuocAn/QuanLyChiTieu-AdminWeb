@@ -37,6 +37,12 @@ export type PeriodChartPoint = {
   transactionCount?: number;
 };
 
+export type HotHashtag = {
+  tag: string;
+  total: number;
+  count: number;
+};
+
 export type NormalizedDashboard = {
   displayCurrency: string;
   exchangeProvider?: string;
@@ -89,6 +95,7 @@ export type NormalizedDashboard = {
       name: string;
       total: number;
     }>;
+    hotHashtags: HotHashtag[];
     walletHealth: Array<{ name: string; value: number }>;
     subscriptionStats: {
       basicUsers: number;
@@ -301,6 +308,11 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
           ],
       topCategories: arrayFrom(statistics.topCategories),
       topWallets: arrayFrom(statistics.topWallets),
+      hotHashtags: arrayFrom<HotHashtag>(statistics.hotHashtags).map((item) => ({
+        tag: String(item.tag ?? ""),
+        total: numberFrom(item.total),
+        count: numberFrom(item.count),
+      })),
       walletHealth: arrayFrom(statistics.walletHealth).length
         ? arrayFrom(statistics.walletHealth)
         : [

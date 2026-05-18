@@ -10,6 +10,10 @@ type MainLayoutProps = Readonly<{
   children: React.ReactNode;
 }>;
 
+type CurrentUser = {
+  must_change_password?: boolean | number | null;
+};
+
 export default function MainLayout({ children }: MainLayoutProps) {
   const router = useRouter();
 
@@ -37,7 +41,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
       try {
         // Xác thực token bằng endpoint profile.
-        await api("/users/me");
+        const user = await api<CurrentUser>("/users/me");
+
+        if (user.must_change_password) {
+          if (!cancelled) {
+            router.replace("/change-password-first");
+          }
+          return;
+        }
       } catch {
         // Token sai/hết hạn: xóa token để tránh lặp và đưa về trang login.
         clearAuthTokens();

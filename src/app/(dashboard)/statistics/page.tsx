@@ -19,6 +19,7 @@ import {
   type PeriodKey,
 } from "@/lib/dashboard";
 import { api } from "@/services/api";
+import DatePickerInput from "@/components/DatePickerInput";
 
 const periodLabels: Record<PeriodKey, string> = {
   all: "Tất cả",
@@ -32,9 +33,8 @@ const periodLabels: Record<PeriodKey, string> = {
 const pieColors = ["#16a34a", "#f97316", "#ef4444", "#0ea5e9", "#8b5cf6", "#f59e0b"];
 type CategoryView = "ALL" | "INCOME" | "EXPENSE";
 type PeriodOption = {
-  value: string;
   label: string;
-  caption?: string;
+  value: string;
 };
 
 function formatCurrency(value: number, currency: string) {
@@ -64,6 +64,18 @@ function toLocalDateValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function parseLocalDateValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+
+  return new Date(year, month - 1, day);
+}
+
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
@@ -86,6 +98,15 @@ function formatShortDate(date: Date) {
   return `${`${date.getDate()}`.padStart(2, "0")}/${`${date.getMonth() + 1}`.padStart(2, "0")}`;
 }
 
+function formatLongDate(value: string) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parseLocalDateValue(value));
+}
+
 function getISOWeek(date: Date) {
   const current = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = current.getUTCDay() || 7;
@@ -95,75 +116,93 @@ function getISOWeek(date: Date) {
   return Math.ceil(((current.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
 }
 
-function buildPeriodOptions(period: PeriodKey): PeriodOption[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+function getPeriodDateCaption(period: PeriodKey, value: string) {
+  const date = parseLocalDateValue(value);
 
   if (period === "all") {
-    return [];
+    return "Toàn bộ dữ liệu";
   }
 
   if (period === "day") {
-    return Array.from({ length: 45 }, (_, index) => {
-      const date = addDays(today, -index);
-
-      return {
-        value: toLocalDateValue(date),
-        label: formatShortDate(date),
-        caption: date.getFullYear().toString(),
-      };
-    });
+    return formatLongDate(value);
   }
 
   if (period === "week") {
-    const currentStart = startOfWeek(today);
+    const start = startOfWeek(date);
+    const end = addDays(start, 6);
 
-    return Array.from({ length: 32 }, (_, index) => {
-      const start = addDays(currentStart, -index * 7);
+    return `Tuần ${getISOWeek(start)} · ${formatShortDate(start)} - ${formatShortDate(end)}/${end.getFullYear()}`;
+  }
+
+  if (period === "month") {
+    return `Tháng ${date.getMonth() + 1}/${date.getFullYear()}`;
+  }
+
+  if (period === "quarter") {
+    const quarter = Math.floor(date.getMonth() / 3) + 1;
+    const start = startOfQuarter(date);
+    const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
+
+    return `Quý ${quarter}/${date.getFullYear()} · ${formatShortDate(start)} - ${formatShortDate(end)}`;
+  }
+
+  return `Năm ${date.getFullYear()}`;
+}
+
+function buildPeriodOptions(period: PeriodKey, selectedDate: string): PeriodOption[] {
+  const baseDate = parseLocalDateValue(selectedDate);
+
+  if (period === "week") {
+    const currentWeek = startOfWeek(baseDate);
+
+    return [-1, 0, 1].map((offset) => {
+      const start = addDays(currentWeek, offset * 7);
       const end = addDays(start, 6);
 
       return {
+        label: `Tuần ${getISOWeek(start)} · ${formatShortDate(start)} - ${formatShortDate(end)}`,
         value: toLocalDateValue(start),
-        label: `Tuần ${getISOWeek(start)}`,
-        caption: `${formatShortDate(start)} - ${formatShortDate(end)}`,
       };
     });
   }
 
   if (period === "month") {
-    return Array.from({ length: 24 }, (_, index) => {
-      const date = new Date(today.getFullYear(), today.getMonth() - index, 1);
+    return [-1, 0, 1].map((offset) => {
+      const date = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
 
       return {
-        value: toLocalDateValue(date),
         label: `Tháng ${date.getMonth() + 1}/${date.getFullYear()}`,
+        value: toLocalDateValue(date),
       };
     });
   }
 
   if (period === "quarter") {
-    const currentStart = startOfQuarter(today);
+    const currentQuarter = startOfQuarter(baseDate);
 
-    return Array.from({ length: 16 }, (_, index) => {
-      const start = new Date(currentStart.getFullYear(), currentStart.getMonth() - index * 3, 1);
-      const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
+    return [-1, 0, 1].map((offset) => {
+      const date = new Date(currentQuarter.getFullYear(), currentQuarter.getMonth() + offset * 3, 1);
+      const quarter = Math.floor(date.getMonth() / 3) + 1;
 
       return {
-        value: toLocalDateValue(start),
-        label: `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`,
-        caption: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+        label: `Quý ${quarter}/${date.getFullYear()}`,
+        value: toLocalDateValue(date),
       };
     });
   }
 
-  return Array.from({ length: 8 }, (_, index) => {
-    const date = new Date(today.getFullYear() - index, 0, 1);
+  if (period === "year") {
+    return [-1, 0, 1].map((offset) => {
+      const date = new Date(baseDate.getFullYear() + offset, 0, 1);
 
-    return {
-      value: toLocalDateValue(date),
-      label: date.getFullYear().toString(),
-    };
-  });
+      return {
+        label: `Năm ${date.getFullYear()}`,
+        value: toLocalDateValue(date),
+      };
+    });
+  }
+
+  return [];
 }
 
 function EmptyOverlay() {
@@ -183,11 +222,9 @@ export default function StatisticsPage() {
   const [data, setData] = useState<NormalizedDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const periodOptions = useMemo(() => buildPeriodOptions(period), [period]);
 
   const handlePeriodChange = (nextPeriod: PeriodKey) => {
     setPeriod(nextPeriod);
-    setSelectedDate(buildPeriodOptions(nextPeriod)[0]?.value ?? getTodayInputValue());
   };
 
   useEffect(() => {
@@ -210,6 +247,10 @@ export default function StatisticsPage() {
   }, [selectedDate, period]);
 
   const selectedSummary = data?.statistics.periods[period];
+  const periodOptions = useMemo(
+    () => buildPeriodOptions(period, selectedDate),
+    [period, selectedDate]
+  );
   const hasSelectedTransactions = Boolean(selectedSummary?.transactionCount);
   const categoryNames = useMemo(
     () =>
@@ -280,6 +321,14 @@ export default function StatisticsPage() {
         Chi: category.expense,
       }))
     : [{ name: "-", Thu: 0, Chi: 0 }];
+  const hotHashtags = data.statistics.hotHashtags;
+  const hashtagChartData = hotHashtags.length
+    ? hotHashtags.map((item) => ({
+        name: `#${item.tag}`,
+        value: item.count,
+        total: item.total,
+      }))
+    : [{ name: "-", value: 0, total: 0 }];
   const overviewCards = [
     { label: "Tổng thu", value: formatCurrency(selectedSummary.income, data.displayCurrency), note: periodLabels[period] },
     {
@@ -345,36 +394,42 @@ export default function StatisticsPage() {
             ))}
           </div>
 
-          {periodOptions.length > 0 ? (
-            <div className="-mx-1 overflow-x-auto px-1 pb-1">
-              <div className="flex min-w-max gap-2">
-                {periodOptions.map((option) => {
-                  const isActive = selectedDate === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setSelectedDate(option.value)}
-                      className={[
-                        "rounded-2xl border px-4 py-3 text-left text-sm transition",
-                        isActive
-                          ? "border-orange-400 bg-orange-500 text-white shadow-sm"
-                          : "border-orange-100 bg-white text-slate-700 hover:border-orange-300",
-                      ].join(" ")}
-                    >
-                      <span className="block font-bold">{option.label}</span>
-                      {option.caption ? (
-                        <span className={["mt-1 block text-xs", isActive ? "text-orange-50" : "text-slate-500"].join(" ")}>
-                          {option.caption}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Kỳ đang xem
+              </p>
+              <p className="mt-1 text-sm font-bold text-slate-900">
+                {getPeriodDateCaption(period, selectedDate)}
+              </p>
             </div>
-          ) : null}
+            {period === "day" ? (
+              <DatePickerInput
+                value={selectedDate}
+                onChange={setSelectedDate}
+                label="Ngày"
+                className="md:w-[320px]"
+              />
+            ) : periodOptions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {periodOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSelectedDate(option.value)}
+                    className={[
+                      "rounded-xl border px-4 py-2 text-sm font-semibold transition",
+                      selectedDate === option.value
+                        ? "border-orange-500 bg-orange-500 text-white shadow-sm"
+                        : "border-orange-200 bg-white text-slate-700 hover:bg-orange-50",
+                    ].join(" ")}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -526,6 +581,67 @@ export default function StatisticsPage() {
               <Bar dataKey="expense" name="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="min-w-0 rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-slate-900">Hashtag hot</h2>
+          <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+            {hotHashtags.length} hashtag
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
+          <div className="relative h-72 min-w-0 overflow-hidden rounded-2xl">
+            <div className={hotHashtags.length ? "min-w-0 h-full" : "pointer-events-none min-w-0 h-full opacity-30 blur-[1.5px]"}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hashtagChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
+                  <XAxis dataKey="name" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip
+                    formatter={(value, name, entry) =>
+                      name === "total"
+                        ? formatCurrency(Number(value), data.displayCurrency)
+                        : [
+                            `${formatNumber(Number(value))} giao dịch`,
+                            `Tổng ${formatCurrency(Number(entry.payload.total), data.displayCurrency)}`,
+                          ]
+                    }
+                  />
+                  <Bar dataKey="value" name="Lượt dùng" fill="#0ea5e9" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {hotHashtags.length ? null : <EmptyOverlay />}
+          </div>
+
+          <div className="space-y-3">
+            {hotHashtags.length === 0 ? (
+              <div className="rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm text-slate-600">
+                Chưa có hashtag trong kỳ này.
+              </div>
+            ) : (
+              hotHashtags.map((item, index) => (
+                <div
+                  key={item.tag}
+                  className="flex items-center justify-between gap-4 rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm"
+                >
+                  <div>
+                    <p className="font-bold text-slate-900">
+                      {index + 1}. #{item.tag}
+                    </p>
+                    <p className="mt-1 text-slate-600">{formatNumber(item.count)} giao dịch</p>
+                  </div>
+                  <p className="font-bold text-orange-700">
+                    {formatCurrency(item.total, data.displayCurrency)}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </section>
 

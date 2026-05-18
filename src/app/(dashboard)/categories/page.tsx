@@ -30,6 +30,7 @@ const defaultFormState: CategoryFormState = {
 };
 
 const typeOptions: CategoryType[] = ["EXPENSE", "INCOME"];
+const PAGE_SIZE = 10;
 type CategorySortOption = "NAME_ASC" | "NAME_DESC";
 
 function getTypeLabel(type: CategoryType) {
@@ -102,6 +103,7 @@ export default function CategoriesPage() {
   const [typeFilter, setTypeFilter] = useState<"ALL" | CategoryType>("ALL");
   const [scopeFilter, setScopeFilter] = useState<"ALL" | "SYSTEM" | "PERSONAL">("ALL");
   const [sortOption, setSortOption] = useState<CategorySortOption>("NAME_ASC");
+  const [page, setPage] = useState(1);
 
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryItem | null>(null);
@@ -145,6 +147,7 @@ export default function CategoriesPage() {
   };
 
   const toggleNameSort = () => {
+    setPage(1);
     setSortOption((current) => (current === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC"));
   };
 
@@ -345,6 +348,9 @@ export default function CategoriesPage() {
 
     return sortOption === "NAME_ASC" ? result : -result;
   });
+  const totalPages = Math.max(1, Math.ceil(sortedCategories.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedCategories = sortedCategories.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const renderIcon = (category: Pick<CategoryItem, "icon" | "name">) => {
     const src = resolveIconSrc(category.icon);
@@ -430,8 +436,7 @@ export default function CategoriesPage() {
                 </p>
 
                 <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm text-slate-600">
-                  Danh mục hệ thống hoặc danh mục không thuộc quyền của bạn sẽ bị
-                  backend từ chối xóa.
+                  Danh mục hệ thống hoặc danh mục không thuộc quyền của bạn sẽ không thể xóa.
                 </div>
 
                 <div className="flex justify-end gap-3">
@@ -599,16 +604,20 @@ export default function CategoriesPage() {
               <div className="flex flex-col gap-4 lg:flex-row">
                 <input
                   value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
+                  onChange={(event) => {
+                    setSearchText(event.target.value);
+                    setPage(1);
+                  }}
                   className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400 lg:max-w-sm"
                   placeholder="Tìm theo tên danh mục"
                 />
 
                 <select
                   value={typeFilter}
-                  onChange={(event) =>
-                    setTypeFilter(event.target.value as "ALL" | CategoryType)
-                  }
+                  onChange={(event) => {
+                    setTypeFilter(event.target.value as "ALL" | CategoryType);
+                    setPage(1);
+                  }}
                   className="rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm outline-none transition focus:border-orange-400"
                 >
                   <option value="ALL">Tất cả</option>
@@ -621,11 +630,10 @@ export default function CategoriesPage() {
 
                 <select
                   value={scopeFilter}
-                  onChange={(event) =>
-                    setScopeFilter(
-                      event.target.value as "ALL" | "SYSTEM" | "PERSONAL"
-                    )
-                  }
+                  onChange={(event) => {
+                    setScopeFilter(event.target.value as "ALL" | "SYSTEM" | "PERSONAL");
+                    setPage(1);
+                  }}
                   className="rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm outline-none transition focus:border-orange-400"
                 >
                   <option value="ALL">Tất cả</option>
@@ -697,7 +705,7 @@ export default function CategoriesPage() {
                 </thead>
 
                 <tbody>
-                  {sortedCategories.map((category) => (
+                  {paginatedCategories.map((category) => (
                     <tr
                       key={category.id}
                       className="border-t border-orange-200 text-sm text-slate-700"
@@ -710,7 +718,7 @@ export default function CategoriesPage() {
                               {category.name}
                             </p>
                             <p className="mt-1 text-sm text-slate-500">
-                              ID: {category.id}
+                              Mã danh mục {category.id}
                             </p>
                           </div>
                         </div>
@@ -760,6 +768,32 @@ export default function CategoriesPage() {
             </div>
           )}
         </div>
+
+        {sortedCategories.length > PAGE_SIZE ? (
+          <div className="flex flex-col gap-3 rounded-3xl border border-orange-100 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-semibold">
+              Trang {safePage}/{totalPages} · {sortedCategories.length} danh mục
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage === 1}
+                className="rounded-xl border border-orange-200 px-4 py-2 font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Trước
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={safePage === totalPages}
+                className="rounded-xl bg-orange-500 px-4 py-2 font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Sau
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {renderModal()}

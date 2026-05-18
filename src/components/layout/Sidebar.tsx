@@ -16,6 +16,11 @@ const menuItems = [
     description: "Quản lý tài khoản",
   },
   {
+    label: "Hồ sơ admin",
+    href: "/admin-profile",
+    description: "Thông tin tài khoản của tôi",
+  },
+  {
     label: "Danh mục",
     href: "/categories",
     description: "Quản lý danh mục",

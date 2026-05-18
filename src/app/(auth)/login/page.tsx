@@ -14,6 +14,10 @@ type LoginResponse = {
   mustChangePassword?: boolean;
 };
 
+type CurrentUser = {
+  must_change_password?: boolean | number | null;
+};
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -30,6 +34,11 @@ function LoginContent() {
   const [error, setError] = useState(expiredMessage);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotError, setForgotError] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -40,7 +49,11 @@ function LoginContent() {
 
     const checkToken = async () => {
       try {
-        await api("/users/me");
+        const user = await api<CurrentUser>("/users/me");
+        if (user.must_change_password) {
+          router.replace("/change-password-first");
+          return;
+        }
         router.replace("/");
       } catch {
         clearAuthTokens();
@@ -49,6 +62,28 @@ function LoginContent() {
 
     void checkToken();
   }, [router]);
+
+  useEffect(() => {
+    const googleError = searchParams.get("googleError");
+    const accessToken = searchParams.get("token");
+    const refreshToken = searchParams.get("refreshToken");
+    const mustChangePassword = searchParams.get("mustChangePassword") === "1";
+
+    if (googleError) {
+      const timer = window.setTimeout(() => {
+        setError(decodeURIComponent(googleError));
+      }, 0);
+
+      return () => window.clearTimeout(timer);
+    }
+
+    if (!accessToken) {
+      return;
+    }
+
+    saveAuthTokens({ token: accessToken, accessToken, refreshToken: refreshToken ?? undefined });
+    router.replace(mustChangePassword ? "/change-password-first" : "/");
+  }, [router, searchParams]);
 
   // validate dữ liệu nhập
   const validate = () => {
@@ -106,12 +141,12 @@ function LoginContent() {
       router.push("/");
     } catch (caughtError) {
       const message =
-        caughtError instanceof Error ? caughtError.message : "Không thể kết nối server";
+        caughtError instanceof Error ? caughtError.message : "Không thể kết nối hệ thống";
 
       setError(
         message.toLowerCase().includes("fetch") ||
           message.toLowerCase().includes("network")
-          ? "Không thể kết nối server"
+          ? "Không thể kết nối hệ thống. Vui lòng kiểm tra mạng hoặc thử lại sau."
           : message || "Sai email hoặc mật khẩu"
       );
     } finally {
@@ -122,6 +157,31 @@ function LoginContent() {
   // login google
   const handleGoogleLogin = () => {
     window.location.href = "http://localhost:3000/auth/google";
+  };
+
+  const handleForgotPassword = async () => {
+    if (!forgotEmail.trim()) {
+      setForgotError("Vui lòng nhập email.");
+      return;
+    }
+
+    try {
+      setForgotLoading(true);
+      setForgotError("");
+      setForgotMessage("");
+      const response = await api<{ message: string }>(
+        "/users/forgot-password",
+        "POST",
+        { email: forgotEmail.trim() }
+      );
+      setForgotMessage(response.message);
+    } catch (caughtError) {
+      setForgotError(
+        caughtError instanceof Error ? caughtError.message : "Không thể gửi email đặt lại mật khẩu."
+      );
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
@@ -209,6 +269,19 @@ function LoginContent() {
                   {loading ? "Đang đăng nhập..." : "Đăng nhập"}
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotOpen(true);
+                    setForgotEmail(email);
+                    setForgotError("");
+                    setForgotMessage("");
+                  }}
+                  className="mt-3 w-full text-center text-sm font-semibold text-orange-600 hover:text-orange-700"
+                >
+                  Quên mật khẩu?
+                </button>
+
                 {/* divider */}
                 <div className="flex items-center my-6">
                   <div className="flex-1 h-px bg-gray-200" />
@@ -232,6 +305,46 @@ function LoginContent() {
         </div>
 
       </div>
+      {forgotOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5">
+              <h3 className="text-xl font-bold text-gray-900">Quên mật khẩu</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-600">
+                Nhập email tài khoản. Hệ thống sẽ gửi mật khẩu tạm thời về email đó.
+              </p>
+            </div>
+
+            <input
+              value={forgotEmail}
+              onChange={(event) => setForgotEmail(event.target.value)}
+              className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+              placeholder="Email"
+            />
+
+            {forgotError ? <p className="mt-3 text-sm text-red-600">{forgotError}</p> : null}
+            {forgotMessage ? <p className="mt-3 text-sm text-emerald-700">{forgotMessage}</p> : null}
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setForgotOpen(false)}
+                className="flex-1 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={forgotLoading}
+                className="flex-1 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-60"
+              >
+                {forgotLoading ? "Đang gửi..." : "Gửi email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

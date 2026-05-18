@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { API_URL, api, apiUploadFile } from "@/services/api";
+import DatePickerInput from "@/components/DatePickerInput";
 
 type UserListItem = {
   id: number;
@@ -15,6 +16,16 @@ type UserListItem = {
   birthday?: string | null;
   address?: string | null;
   avatar?: string | null;
+};
+
+type PaginatedResponse<T> = {
+  data: T[];
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 };
 
 type ModalMode = "create" | "edit" | "delete" | null;
@@ -44,6 +55,15 @@ const defaultFormState: UserFormState = {
 
 const roleOptions = ["BASIC", "PREMIUM", "ADMIN"] as const;
 const SUPER_ADMIN_EMAIL = "admin@gmail.com";
+const PAGE_SIZE = 10;
+const sortQueryMap: Record<UserSortOption, string> = {
+  NAME_ASC: "name_asc",
+  NAME_DESC: "name_desc",
+  BIRTH_ASC: "birth_asc",
+  BIRTH_DESC: "birth_desc",
+  WALLET_ASC: "wallet_asc",
+  WALLET_DESC: "wallet_desc",
+};
 type UserSortOption =
   | "NAME_ASC"
   | "NAME_DESC"
@@ -186,6 +206,8 @@ export default function UsersPage() {
   const [searchText, setSearchText] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [sortOption, setSortOption] = useState<UserSortOption>("NAME_ASC");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
 
   // State phục vụ popup CRUD.
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -211,27 +233,50 @@ export default function UsersPage() {
     };
   }, [avatarPreviewUrl]);
 
-  // Lấy danh sách cơ bản rồi nối thêm chi tiết từng người dùng để hiển thị đủ thông tin.
-  const loadUsers = async () => {
+  const loadUsers = async (
+    overrides: Partial<{
+      page: number;
+      searchText: string;
+      roleFilter: string;
+      sortOption: UserSortOption;
+    }> = {}
+  ) => {
     try {
       setError("");
+      const nextPage = overrides.page ?? page;
+      const nextSearchText = overrides.searchText ?? searchText;
+      const nextRoleFilter = overrides.roleFilter ?? roleFilter;
+      const nextSortOption = overrides.sortOption ?? sortOption;
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(PAGE_SIZE),
+        sort: sortQueryMap[nextSortOption],
+      });
+
+      if (nextSearchText.trim()) {
+        params.set("keyword", nextSearchText.trim());
+      }
+
+      if (nextRoleFilter !== "ALL") {
+        params.set("role", nextRoleFilter);
+      }
 
       const [me, data] = await Promise.all([
         api<UserListItem>("/users/me"),
-        api<UserListItem[]>("/users"),
+        api<UserListItem[] | PaginatedResponse<UserListItem>>(`/users?${params.toString()}`),
       ]);
       setCurrentUser(me);
-      const usersWithDetail = await Promise.all(
-        data.map(async (user) => {
-          try {
-            return await api<UserListItem>(`/users/detail/${user.id}`);
-          } catch {
-            return user;
-          }
-        })
-      );
+      const userList = Array.isArray(data) ? data : data.data;
 
-      setUsers(usersWithDetail);
+      setUsers(userList);
+      setPagination(
+        Array.isArray(data)
+          ? { total: userList.length, totalPages: Math.max(Math.ceil(userList.length / PAGE_SIZE), 1) }
+          : {
+              total: data.meta?.total ?? userList.length,
+              totalPages: data.meta?.totalPages ?? 1,
+            }
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -249,17 +294,68 @@ export default function UsersPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [page, roleFilter, searchText, sortOption]);
 
   const fetchUsers = async () => {
     setSearchText("");
     setRoleFilter("ALL");
     setSortOption("NAME_ASC");
+    setPage(1);
     setLoading(true);
-    await loadUsers();
+    await loadUsers({
+      page: 1,
+      searchText: "",
+      roleFilter: "ALL",
+      sortOption: "NAME_ASC",
+    });
+  };
+
+  const handleExportUsers = async () => {
+    try {
+      const limit = 100;
+      const baseParams = new URLSearchParams({
+        limit: String(limit),
+        sort: sortQueryMap[sortOption],
+      });
+
+      if (searchText.trim()) {
+        baseParams.set("keyword", searchText.trim());
+      }
+
+      if (roleFilter !== "ALL") {
+        baseParams.set("role", roleFilter);
+      }
+
+      const firstParams = new URLSearchParams(baseParams);
+      firstParams.set("page", "1");
+      const first = await api<PaginatedResponse<UserListItem> | UserListItem[]>(
+        `/users?${firstParams.toString()}`
+      );
+      const firstUsers = Array.isArray(first) ? first : first.data;
+      const totalPages = Array.isArray(first) ? 1 : first.meta?.totalPages ?? 1;
+      const allUsers = [...firstUsers];
+
+      for (let nextPage = 2; nextPage <= totalPages; nextPage += 1) {
+        const params = new URLSearchParams(baseParams);
+        params.set("page", String(nextPage));
+        const response = await api<PaginatedResponse<UserListItem>>(
+          `/users?${params.toString()}`
+        );
+        allUsers.push(...response.data);
+      }
+
+      exportUsersToCsv(allUsers);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Không thể xuất danh sách người dùng."
+      );
+    }
   };
 
   const toggleSort = (field: "NAME" | "BIRTH" | "WALLET") => {
+    setPage(1);
     setSortOption((current) => {
       if (field === "NAME") {
         return current === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC";
@@ -390,11 +486,15 @@ export default function UsersPage() {
   };
 
   const canEditUser = (user: UserListItem) => {
+    if (currentUser?.id === user.id) {
+      return false;
+    }
+
     if (isSuperAdmin) {
       return true;
     }
 
-    return currentUser?.id === user.id || user.role !== "ADMIN";
+    return user.role !== "ADMIN";
   };
 
   const canDeleteUser = (user: UserListItem) => {
@@ -544,37 +644,10 @@ export default function UsersPage() {
     }
   };
 
-  // Tìm theo tên và lọc theo role ngay trên dữ liệu đã tải.
-  const filteredUsers = users.filter((user) => {
-    const normalizedSearch = searchText.trim().toLowerCase();
-    const matchedName = normalizedSearch
-      ? (user.full_name ?? "").toLowerCase().includes(normalizedSearch)
-      : true;
-    const matchedRole = roleFilter === "ALL" ? true : user.role === roleFilter;
-
-    return matchedName && matchedRole;
-  });
-  const sortedUsers = [...filteredUsers].sort((left, right) => {
-    if (sortOption === "NAME_ASC" || sortOption === "NAME_DESC") {
-      const leftName = left.full_name || left.email || "";
-      const rightName = right.full_name || right.email || "";
-      const result = leftName.localeCompare(rightName, "vi");
-
-      return sortOption === "NAME_ASC" ? result : -result;
-    }
-
-    if (sortOption === "BIRTH_ASC" || sortOption === "BIRTH_DESC") {
-      const leftTime = left.birthday ? new Date(left.birthday).getTime() : 0;
-      const rightTime = right.birthday ? new Date(right.birthday).getTime() : 0;
-      const result = leftTime - rightTime;
-
-      return sortOption === "BIRTH_ASC" ? result : -result;
-    }
-
-    const result = (left.wallet_count ?? 0) - (right.wallet_count ?? 0);
-
-    return sortOption === "WALLET_ASC" ? result : -result;
-  });
+  const sortedUsers = users;
+  const totalPages = pagination.totalPages;
+  const paginatedUsers = users;
+  const safePage = Math.min(page, totalPages);
 
   const renderAvatar = (user: Pick<UserListItem, "avatar" | "full_name" | "email">) => {
     const src = resolveAvatarSrc(user.avatar);
@@ -801,11 +874,10 @@ export default function UsersPage() {
 
                   <label className="space-y-2">
                     <span className="text-sm font-medium text-slate-700">Ngày sinh</span>
-                    <input
-                      type="date"
+                    <DatePickerInput
                       value={formState.birthday}
-                      onChange={(event) => updateField("birthday", event.target.value)}
-                      className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                      onChange={(value) => updateField("birthday", value)}
+                      label="Ngày sinh"
                     />
                   </label>
 
@@ -920,14 +992,20 @@ export default function UsersPage() {
             <div className="flex flex-1 flex-col gap-4 md:flex-row">
               <input
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => {
+                  setSearchText(event.target.value);
+                  setPage(1);
+                }}
                 className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400 md:max-w-sm"
                 placeholder="Tìm theo tên người dùng"
               />
 
               <select
                 value={roleFilter}
-                onChange={(event) => setRoleFilter(event.target.value)}
+                onChange={(event) => {
+                  setRoleFilter(event.target.value);
+                  setPage(1);
+                }}
                 className="rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm outline-none transition focus:border-orange-400"
               >
                 <option value="ALL">Tất cả vai trò</option>
@@ -942,7 +1020,7 @@ export default function UsersPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => exportUsersToCsv(sortedUsers)}
+                onClick={() => void handleExportUsers()}
                 className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100"
               >
                 Xuất Excel
@@ -1037,7 +1115,7 @@ export default function UsersPage() {
                 </thead>
 
                 <tbody>
-                  {sortedUsers.map((user) => {
+                  {paginatedUsers.map((user) => {
                     const editable = canEditUser(user);
                     const deletable = canDeleteUser(user);
 
@@ -1103,6 +1181,31 @@ export default function UsersPage() {
                   })}
                 </tbody>
               </table>
+              {pagination.total > PAGE_SIZE ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 px-6 py-4 text-sm">
+                  <span className="font-medium text-slate-600">
+                    Trang {safePage}/{totalPages} · {pagination.total} người dùng
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage((current) => Math.max(current - 1, 1))}
+                      disabled={safePage === 1}
+                      className="rounded-xl border border-orange-200 px-4 py-2 font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Trước
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+                      disabled={safePage === totalPages}
+                      className="rounded-xl border border-orange-200 px-4 py-2 font-semibold text-orange-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Sau
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
