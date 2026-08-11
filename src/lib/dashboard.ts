@@ -21,6 +21,7 @@ export type PeriodSummary = {
   biggestExpense: number;
   categoryTotals: Array<{
     categoryId: number;
+    name?: string;
     income: number;
     expense: number;
     total: number;
@@ -35,6 +36,14 @@ export type PeriodChartPoint = {
   expense: number;
   net?: number;
   transactionCount?: number;
+};
+
+export type CategoryTotal = {
+  categoryId: number;
+  name: string;
+  income: number;
+  expense: number;
+  total: number;
 };
 
 export type HotHashtag = {
@@ -83,13 +92,11 @@ export type NormalizedDashboard = {
   statistics: {
     periods: Record<PeriodKey, PeriodSummary>;
     roleDistribution: Array<{ name: string; value: number }>;
-    topCategories: Array<{
-      categoryId: number;
-      name: string;
-      income: number;
-      expense: number;
-      total: number;
-    }>;
+    topCategories: CategoryTotal[];
+    systemCategoryTotals: CategoryTotal[];
+    personalCategoryTotals: CategoryTotal[];
+    topPersonalIncomeCategories: CategoryTotal[];
+    topPersonalExpenseCategories: CategoryTotal[];
     topWallets: Array<{
       walletId: number;
       name: string;
@@ -139,6 +146,16 @@ function objectFrom(value: unknown): RawDashboard {
 
 function arrayFrom<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeCategoryTotals(value: unknown): CategoryTotal[] {
+  return arrayFrom<Record<string, unknown>>(value).map((item) => ({
+    categoryId: numberFrom(item.categoryId ?? item.category_id),
+    name: String(item.name ?? "Chưa phân loại"),
+    income: numberFrom(item.income),
+    expense: numberFrom(item.expense),
+    total: numberFrom(item.total),
+  }));
 }
 
 function buildPeriod(income: number, expense: number, transactionCount = 0): PeriodSummary {
@@ -306,7 +323,11 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
             { name: "Premium", value: premiumUsers },
             { name: "Admin", value: adminUsers },
           ],
-      topCategories: arrayFrom(statistics.topCategories),
+      topCategories: normalizeCategoryTotals(statistics.topCategories),
+      systemCategoryTotals: normalizeCategoryTotals(statistics.systemCategoryTotals),
+      personalCategoryTotals: normalizeCategoryTotals(statistics.personalCategoryTotals),
+      topPersonalIncomeCategories: normalizeCategoryTotals(statistics.topPersonalIncomeCategories),
+      topPersonalExpenseCategories: normalizeCategoryTotals(statistics.topPersonalExpenseCategories),
       topWallets: arrayFrom(statistics.topWallets),
       hotHashtags: arrayFrom<HotHashtag>(statistics.hotHashtags).map((item) => ({
         tag: String(item.tag ?? ""),
@@ -316,7 +337,7 @@ export function normalizeDashboard(rawValue: unknown): NormalizedDashboard {
       walletHealth: arrayFrom(statistics.walletHealth).length
         ? arrayFrom(statistics.walletHealth)
         : [
-            { name: "Ví ổn", value: Math.max(totalWallets - negativeWallets - overBudgetWallets, 0) },
+            { name: "Ví bình thường", value: Math.max(totalWallets - negativeWallets - overBudgetWallets, 0) },
             { name: "Ví âm", value: negativeWallets },
             { name: "Vượt hạn mức", value: overBudgetWallets },
           ],

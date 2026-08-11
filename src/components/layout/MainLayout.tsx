@@ -16,15 +16,7 @@ type CurrentUser = {
 
 export default function MainLayout({ children }: MainLayoutProps) {
   const router = useRouter();
-
-  // Chỉ dùng để xác định có token hay không ở phía client.
-  const [hasToken] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return Boolean(localStorage.getItem("token"));
-  });
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,10 +26,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
       if (!token) {
         if (!cancelled) {
+          setHasToken(false);
           router.replace("/login");
         }
         return;
       }
+
+      setHasToken(true);
 
       try {
         // Xác thực token bằng endpoint profile.
@@ -54,6 +49,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         clearAuthTokens();
 
         if (!cancelled) {
+          setHasToken(false);
           router.replace("/login");
         }
       }

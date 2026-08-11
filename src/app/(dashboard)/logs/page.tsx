@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FiRefreshCw } from "react-icons/fi";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/services/api";
 
 type AdminLog = {
@@ -22,7 +21,7 @@ type PaginatedResponse<T> = {
 };
 
 type ActionFilter = "ALL" | "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "UPLOAD";
-type TargetFilter = "ALL" | "USER" | "CATEGORY" ;
+type TargetFilter = "ALL" | "USER" | "CATEGORY" | "NOTIFICATION";
 type TimeSortOption = "TIME_DESC" | "TIME_ASC";
 const PAGE_SIZE = 10;
 
@@ -37,46 +36,6 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
-function getActionGroup(action: string) {
-  const normalized = action.toLowerCase();
-
-  if (normalized.includes("đăng nhập")) return "LOGIN";
-  if (normalized.includes("đăng xuất")) return "LOGOUT";
-  if (normalized.includes("upload")) return "UPLOAD";
-  if (normalized.includes("xóa")) return "DELETE";
-  if (normalized.includes("cập nhật") || normalized.includes("sửa") || normalized.includes("đổi")) return "UPDATE";
-  if (normalized.includes("tạo") || normalized.includes("thêm")) return "CREATE";
-
-  return "ALL";
-}
-
-function getTargetGroup(action: string) {
-  const normalized = action.toLowerCase();
-
-  if (normalized.includes("người dùng") || normalized.includes("user") || normalized.includes("mật khẩu") || normalized.includes("hồ sơ")) return "USER";
-  if (normalized.includes("danh mục")) return "CATEGORY";
-
-  return "ALL";
-}
-
-function isSameDate(value: string | null | undefined, dateFilter: string) {
-  if (!dateFilter) {
-    return true;
-  }
-
-  if (!value) {
-    return false;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return false;
-  }
-
-  return date.toISOString().slice(0, 10) === dateFilter;
-}
-
 export default function LogsPage() {
   const [logs, setLogs] = useState<AdminLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +47,7 @@ export default function LogsPage() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
 
-  const loadLogs = async (
+  const loadLogs = useCallback(async (
     overrides: Partial<{
       page: number;
       actionFilter: ActionFilter;
@@ -144,7 +103,7 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [actionFilter, dateFilter, page, sortOption, targetFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -152,7 +111,7 @@ export default function LogsPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [actionFilter, dateFilter, page, sortOption, targetFilter]);
+  }, [loadLogs]);
 
   const resetAndReload = async () => {
     setActionFilter("ALL");
@@ -189,11 +148,16 @@ export default function LogsPage() {
           <button
             type="button"
             onClick={() => void resetAndReload()}
-            className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-orange-200 bg-white transition hover:bg-orange-50 disabled:cursor-not-allowed"
             disabled={loading}
+            aria-label="Tải lại dữ liệu"
           >
-            <FiRefreshCw className={loading ? "animate-spin" : ""} />
-            Tải lại
+            <span
+              className={[
+                "h-5 w-5 rounded-full border-2 border-orange-300 border-t-orange-600",
+                loading ? "animate-spin" : "",
+              ].join(" ")}
+            />
           </button>
         </div>
       </div>
@@ -242,6 +206,7 @@ export default function LogsPage() {
                           <option value="ALL">Tất cả mục</option>
                           <option value="USER">Người dùng</option>
                           <option value="CATEGORY">Danh mục</option>
+                          <option value="NOTIFICATION">Thông báo</option>
                         </select>
                       </div>
                     </div>

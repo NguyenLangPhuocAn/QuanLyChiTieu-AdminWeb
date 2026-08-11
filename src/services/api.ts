@@ -11,6 +11,12 @@ const NETWORK_ERROR_MESSAGE =
 const SERVER_ERROR_MESSAGE =
   "Hệ thống đang gặp sự cố. Vui lòng thử lại sau.";
 const GENERIC_ERROR_MESSAGE = "Có lỗi xảy ra. Vui lòng thử lại.";
+const PUBLIC_ENDPOINTS = new Set([
+  "/users/login",
+  "/users/forgot-password",
+  "/users/verify-reset-otp",
+  "/users/reset-password",
+]);
 
 type TokenResponse = {
   token?: string;
@@ -79,15 +85,7 @@ function handleExpiredSession(status: number) {
   }
 }
 
-function getFriendlyMessage(status: number, data: unknown, fallback = GENERIC_ERROR_MESSAGE) {
-  if (status === 401 || status === 403) {
-    return SESSION_EXPIRED_MESSAGE;
-  }
-
-  if (status >= 500) {
-    return SERVER_ERROR_MESSAGE;
-  }
-
+function getPayloadMessage(data: unknown) {
   if (data && typeof data === "object" && "message" in data) {
     const message = (data as { message?: string | string[] }).message;
 
@@ -100,7 +98,34 @@ function getFriendlyMessage(status: number, data: unknown, fallback = GENERIC_ER
     }
   }
 
+  return "";
+}
+
+function getFriendlyMessage(
+  status: number,
+  data: unknown,
+  fallback = GENERIC_ERROR_MESSAGE,
+  authRequired = true
+) {
+  const payloadMessage = getPayloadMessage(data);
+
+  if (authRequired && (status === 401 || status === 403)) {
+    return SESSION_EXPIRED_MESSAGE;
+  }
+
+  if (status >= 500) {
+    return SERVER_ERROR_MESSAGE;
+  }
+
+  if (payloadMessage) {
+    return payloadMessage;
+  }
+
   return fallback;
+}
+
+function isPublicEndpoint(endpoint: string) {
+  return PUBLIC_ENDPOINTS.has(endpoint.split("?")[0]);
 }
 
 async function refreshAccessToken() {
@@ -156,8 +181,13 @@ async function getValidAccessToken() {
   return refreshAccessToken();
 }
 
-async function fetchWithAuth(endpoint: string, init: RequestInit, retry = true) {
-  const token = await getValidAccessToken();
+async function fetchWithAuth(
+  endpoint: string,
+  init: RequestInit,
+  retry = true,
+  authRequired = true
+) {
+  const token = authRequired ? await getValidAccessToken() : null;
   const headers = new Headers(init.headers);
 
   if (token) {
@@ -169,7 +199,7 @@ async function fetchWithAuth(endpoint: string, init: RequestInit, retry = true) 
     headers,
   });
 
-  if (res.status === 401 && retry && getRefreshToken()) {
+  if (authRequired && res.status === 401 && retry && getRefreshToken()) {
     const nextToken = await refreshAccessToken().catch(() => null);
 
     if (nextToken) {
@@ -190,6 +220,7 @@ export const api = async <T>(
   body?: unknown
 ): Promise<T> => {
   let res: Response;
+  const authRequired = !isPublicEndpoint(endpoint);
 
   try {
     res = await fetchWithAuth(endpoint, {
@@ -198,7 +229,7 @@ export const api = async <T>(
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }, true, authRequired);
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(NETWORK_ERROR_MESSAGE);
@@ -210,8 +241,10 @@ export const api = async <T>(
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    handleExpiredSession(res.status);
-    throw new Error(getFriendlyMessage(res.status, data));
+    if (authRequired) {
+      handleExpiredSession(res.status);
+    }
+    throw new Error(getFriendlyMessage(res.status, data, GENERIC_ERROR_MESSAGE, authRequired));
   }
 
   return data as T;

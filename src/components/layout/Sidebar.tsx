@@ -31,6 +31,11 @@ const menuItems = [
     description: "Phân tích hệ thống",
   },
   {
+    label: "Thông báo",
+    href: "/notifications",
+    description: "Gửi thông báo hệ thống",
+  },
+  {
     label: "Logs",
     href: "/logs",
     description: "Theo dõi hoạt động hệ thống",

@@ -1,0 +1,30 @@
+
+> web_admin@0.1.0 dev
+> next dev --port 3001
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.13:3001
+✓ Ready in 618ms
+
+ GET / 200 in 572ms (next.js: 245ms, application-code: 327ms)
+ GET /login 200 in 59ms (next.js: 31ms, application-code: 28ms)
+ GET / 200 in 23ms (next.js: 5ms, application-code: 18ms)
+ GET /logs 200 in 46ms (next.js: 24ms, application-code: 22ms)
+ GET /notifications 200 in 48ms (next.js: 27ms, application-code: 21ms)
+ GET /statistics 200 in 184ms (next.js: 155ms, application-code: 29ms)
+ GET / 200 in 22ms (next.js: 4ms, application-code: 18ms)
+ GET /users 200 in 52ms (next.js: 28ms, application-code: 23ms)
+ GET /statistics 200 in 25ms (next.js: 4ms, application-code: 21ms)
+ GET /notifications 200 in 34ms (next.js: 4ms, application-code: 29ms)
+ GET /logs 200 in 32ms (next.js: 5ms, application-code: 28ms)
+ GET /users 200 in 24ms (next.js: 6ms, application-code: 19ms)
+ GET / 200 in 19ms (next.js: 3ms, application-code: 16ms)
+ GET /login 200 in 73ms (next.js: 18ms, application-code: 55ms)
+ GET / 200 in 26ms (next.js: 9ms, application-code: 17ms)
+ GET /users 200 in 27ms (next.js: 6ms, application-code: 20ms)
+ GET /categories 200 in 72ms (next.js: 48ms, application-code: 24ms)
+ GET /statistics 200 in 25ms (next.js: 5ms, application-code: 20ms)
+ GET /notifications 200 in 24ms (next.js: 5ms, application-code: 19ms)
+ GET /logs 200 in 31ms (next.js: 8ms, application-code: 23ms)
+[?25h

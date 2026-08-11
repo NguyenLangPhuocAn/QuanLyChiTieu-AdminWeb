@@ -16,6 +16,7 @@ import {
 import {
   normalizeDashboard,
   type NormalizedDashboard,
+  type PeriodChartPoint,
   type PeriodKey,
 } from "@/lib/dashboard";
 import { api } from "@/services/api";
@@ -47,6 +48,27 @@ function formatCurrency(value: number, currency: string) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("vi-VN").format(value);
+}
+
+function formatAxisCurrency(value: number) {
+  const abs = Math.abs(value);
+  const formatter = new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: 1,
+  });
+
+  if (abs >= 1_000_000_000) {
+    return `${formatter.format(value / 1_000_000_000)} tỷ`;
+  }
+
+  if (abs >= 1_000_000) {
+    return `${formatter.format(value / 1_000_000)} tr`;
+  }
+
+  if (abs >= 1_000) {
+    return `${formatter.format(value / 1_000)}k`;
+  }
+
+  return formatter.format(value);
 }
 
 function getTodayInputValue() {
@@ -94,8 +116,9 @@ function startOfQuarter(date: Date) {
   return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
 }
 
-function formatShortDate(date: Date) {
-  return `${`${date.getDate()}`.padStart(2, "0")}/${`${date.getMonth() + 1}`.padStart(2, "0")}`;
+function formatDateDisplay(value: string) {
+  const date = parseLocalDateValue(value);
+  return `${`${date.getDate()}`.padStart(2, "0")}/${`${date.getMonth() + 1}`.padStart(2, "0")}/${date.getFullYear()}`;
 }
 
 function formatLongDate(value: string) {
@@ -131,7 +154,7 @@ function getPeriodDateCaption(period: PeriodKey, value: string) {
     const start = startOfWeek(date);
     const end = addDays(start, 6);
 
-    return `Tuần ${getISOWeek(start)} · ${formatShortDate(start)} - ${formatShortDate(end)}/${end.getFullYear()}`;
+    return `Tuần ${getISOWeek(start)} · ${formatDateDisplay(toLocalDateValue(start))} - ${formatDateDisplay(toLocalDateValue(end))}`;
   }
 
   if (period === "month") {
@@ -143,66 +166,86 @@ function getPeriodDateCaption(period: PeriodKey, value: string) {
     const start = startOfQuarter(date);
     const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
 
-    return `Quý ${quarter}/${date.getFullYear()} · ${formatShortDate(start)} - ${formatShortDate(end)}`;
+    return `Quý ${quarter}/${date.getFullYear()} · ${formatDateDisplay(toLocalDateValue(start))} - ${formatDateDisplay(toLocalDateValue(end))}`;
   }
 
   return `Năm ${date.getFullYear()}`;
 }
 
-function buildPeriodOptions(period: PeriodKey, selectedDate: string): PeriodOption[] {
-  const baseDate = parseLocalDateValue(selectedDate);
+function getYearOptions(selectedDate: string) {
+  const currentYear = parseLocalDateValue(getTodayInputValue()).getFullYear();
+  const selectedYear = parseLocalDateValue(selectedDate).getFullYear();
+  const startYear = Math.min(2020, selectedYear);
 
-  if (period === "week") {
-    const currentWeek = startOfWeek(baseDate);
+  return Array.from({ length: currentYear - startYear + 1 }, (_, index) => currentYear - index);
+}
 
-    return [-1, 0, 1].map((offset) => {
-      const start = addDays(currentWeek, offset * 7);
-      const end = addDays(start, 6);
+function getMonthOptions(year: number) {
+  const today = parseLocalDateValue(getTodayInputValue());
+  const lastMonth = year === today.getFullYear() ? today.getMonth() : 11;
 
-      return {
-        label: `Tuần ${getISOWeek(start)} · ${formatShortDate(start)} - ${formatShortDate(end)}`,
-        value: toLocalDateValue(start),
-      };
-    });
+  return Array.from({ length: lastMonth + 1 }, (_, month) => month);
+}
+
+function getQuarterOptions(year: number) {
+  const today = parseLocalDateValue(getTodayInputValue());
+  const lastQuarter = year === today.getFullYear() ? Math.floor(today.getMonth() / 3) : 3;
+
+  return Array.from({ length: lastQuarter + 1 }, (_, quarter) => quarter);
+}
+
+function getWeeksInMonth(year: number, month: number): PeriodOption[] {
+  const today = parseLocalDateValue(getTodayInputValue());
+  const monthEnd = new Date(year, month + 1, 0);
+  const safeEnd = monthEnd > today ? today : monthEnd;
+
+  if (new Date(year, month, 1) > today) {
+    return [];
   }
 
-  if (period === "month") {
-    return [-1, 0, 1].map((offset) => {
-      const date = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+  return Array.from({ length: 4 }, (_, index) => {
+    const start = new Date(year, month, index * 7 + 1);
+    const rawEnd = index === 3 ? monthEnd : new Date(year, month, index * 7 + 7);
+    const end = rawEnd > safeEnd ? safeEnd : rawEnd;
 
-      return {
-        label: `Tháng ${date.getMonth() + 1}/${date.getFullYear()}`,
-        value: toLocalDateValue(date),
-      };
+    return {
+      label: `Tuần ${index + 1} · ${formatDateDisplay(toLocalDateValue(start))} - ${formatDateDisplay(toLocalDateValue(end))}`,
+      value: toLocalDateValue(start),
+    };
+  }).filter((option) => parseLocalDateValue(option.value) <= safeEnd);
+}
+
+function buildMonthWeekTrend(
+  points: PeriodChartPoint[],
+  selectedDate: string
+): PeriodChartPoint[] {
+  const date = parseLocalDateValue(selectedDate);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const monthEnd = new Date(year, month + 1, 0);
+  const today = parseLocalDateValue(getTodayInputValue());
+  const safeEnd = monthEnd > today ? today : monthEnd;
+
+  return Array.from({ length: 4 }, (_, index) => {
+    const start = new Date(year, month, index * 7 + 1);
+    const rawEnd = index === 3 ? monthEnd : new Date(year, month, index * 7 + 7);
+    const end = rawEnd > safeEnd ? safeEnd : rawEnd;
+
+    const weekPoints = points.filter((point) => {
+      const pointDate = point.start ? parseLocalDateValue(point.start) : null;
+      return pointDate && pointDate >= start && pointDate <= end;
     });
-  }
 
-  if (period === "quarter") {
-    const currentQuarter = startOfQuarter(baseDate);
-
-    return [-1, 0, 1].map((offset) => {
-      const date = new Date(currentQuarter.getFullYear(), currentQuarter.getMonth() + offset * 3, 1);
-      const quarter = Math.floor(date.getMonth() / 3) + 1;
-
-      return {
-        label: `Quý ${quarter}/${date.getFullYear()}`,
-        value: toLocalDateValue(date),
-      };
-    });
-  }
-
-  if (period === "year") {
-    return [-1, 0, 1].map((offset) => {
-      const date = new Date(baseDate.getFullYear() + offset, 0, 1);
-
-      return {
-        label: `Năm ${date.getFullYear()}`,
-        value: toLocalDateValue(date),
-      };
-    });
-  }
-
-  return [];
+    return {
+      label: `Tuần ${index + 1}`,
+      start: toLocalDateValue(start),
+      end: toLocalDateValue(end),
+      income: weekPoints.reduce((total, point) => total + point.income, 0),
+      expense: weekPoints.reduce((total, point) => total + point.expense, 0),
+      net: weekPoints.reduce((total, point) => total + (point.net ?? point.income - point.expense), 0),
+      transactionCount: weekPoints.reduce((total, point) => total + (point.transactionCount ?? 0), 0),
+    };
+  }).filter((point) => parseLocalDateValue(point.start ?? selectedDate) <= safeEnd);
 }
 
 function EmptyOverlay() {
@@ -227,6 +270,36 @@ export default function StatisticsPage() {
     setPeriod(nextPeriod);
   };
 
+  const selectedDateObject = parseLocalDateValue(selectedDate);
+  const selectedYear = selectedDateObject.getFullYear();
+  const selectedMonth = selectedDateObject.getMonth();
+  const selectedQuarter = Math.floor(selectedMonth / 3);
+  const yearOptions = getYearOptions(selectedDate);
+  const monthOptions = getMonthOptions(selectedYear);
+  const quarterOptions = getQuarterOptions(selectedYear);
+  const weekOptions = getWeeksInMonth(selectedYear, selectedMonth);
+
+  const updateYear = (year: number) => {
+    const today = parseLocalDateValue(getTodayInputValue());
+    const month = Math.min(selectedMonth, year === today.getFullYear() ? today.getMonth() : 11);
+    const date =
+      period === "year"
+        ? new Date(year, 0, 1)
+        : period === "quarter"
+          ? new Date(year, Math.min(selectedQuarter, Math.floor(month / 3)) * 3, 1)
+          : new Date(year, month, 1);
+
+    setSelectedDate(toLocalDateValue(date));
+  };
+
+  const updateMonth = (month: number) => {
+    setSelectedDate(toLocalDateValue(new Date(selectedYear, month, 1)));
+  };
+
+  const updateQuarter = (quarter: number) => {
+    setSelectedDate(toLocalDateValue(new Date(selectedYear, quarter * 3, 1)));
+  };
+
   useEffect(() => {
     const loadStatistics = async () => {
       try {
@@ -237,7 +310,7 @@ export default function StatisticsPage() {
         );
         setData(normalizeDashboard(response));
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "-");
+        setError(caughtError instanceof Error ? caughtError.message : "Không thể tải thống kê quản trị.");
       } finally {
         setLoading(false);
       }
@@ -247,10 +320,6 @@ export default function StatisticsPage() {
   }, [selectedDate, period]);
 
   const selectedSummary = data?.statistics.periods[period];
-  const periodOptions = useMemo(
-    () => buildPeriodOptions(period, selectedDate),
-    [period, selectedDate]
-  );
   const hasSelectedTransactions = Boolean(selectedSummary?.transactionCount);
   const categoryNames = useMemo(
     () =>
@@ -287,9 +356,13 @@ export default function StatisticsPage() {
     );
   }
 
-  const selectedCategories = (selectedSummary.categoryTotals ?? []).map((category) => ({
+  const selectedCategories = data.statistics.systemCategoryTotals.map((category) => ({
     ...category,
-    name: categoryNames.get(category.categoryId) ?? `Danh mục #${category.categoryId}`,
+    name: category.name ?? categoryNames.get(category.categoryId) ?? "Chưa phân loại",
+  }));
+  const personalCategories = data.statistics.personalCategoryTotals.map((category) => ({
+    ...category,
+    name: category.name ?? "Chưa phân loại",
   }));
   const filteredCategorySource = selectedCategories.filter((category) => {
     if (categoryView === "INCOME") {
@@ -303,8 +376,11 @@ export default function StatisticsPage() {
     return category.income > 0 || category.expense > 0;
   });
   const hasCategoryData = filteredCategorySource.length > 0;
-  const trendData = data.periodChart.length
-    ? data.periodChart
+  const hasPersonalCategoryData = personalCategories.length > 0;
+  const normalizedTrendData =
+    period === "month" ? buildMonthWeekTrend(data.periodChart, selectedDate) : data.periodChart;
+  const trendData = normalizedTrendData.length
+    ? normalizedTrendData
     : [{ label: "-", income: data.totalIncome, expense: data.totalExpense }];
   const incomeCategories = selectedCategories
     .filter((category) => category.income > 0)
@@ -321,6 +397,15 @@ export default function StatisticsPage() {
         Chi: category.expense,
       }))
     : [{ name: "-", Thu: 0, Chi: 0 }];
+  const personalCategoryChartData = personalCategories.length
+    ? personalCategories.slice(0, 8).map((category) => ({
+        name: category.name,
+        Thu: category.income,
+        Chi: category.expense,
+      }))
+    : [{ name: "-", Thu: 0, Chi: 0 }];
+  const topPersonalIncomeCategories = data.statistics.topPersonalIncomeCategories;
+  const topPersonalExpenseCategories = data.statistics.topPersonalExpenseCategories;
   const hotHashtags = data.statistics.hotHashtags;
   const hashtagChartData = hotHashtags.length
     ? hotHashtags.map((item) => ({
@@ -340,6 +425,14 @@ export default function StatisticsPage() {
       label: "Dòng tiền ròng",
       value: formatCurrency(selectedSummary.net, data.displayCurrency),
       note: selectedSummary.net >= 0 ? "+" : "-",
+    },
+    {
+      label: "Chi tiêu trung bình",
+      value: formatCurrency(
+        selectedSummary.expenseCount > 0 ? selectedSummary.expense / selectedSummary.expenseCount : 0,
+        data.displayCurrency
+      ),
+      note: periodLabels[period],
     },
     {
       label: "Tỷ lệ Premium",
@@ -410,25 +503,79 @@ export default function StatisticsPage() {
                 label="Ngày"
                 className="md:w-[320px]"
               />
-            ) : periodOptions.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {periodOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setSelectedDate(option.value)}
-                    className={[
-                      "rounded-xl border px-4 py-2 text-sm font-semibold transition",
-                      selectedDate === option.value
-                        ? "border-orange-500 bg-orange-500 text-white shadow-sm"
-                        : "border-orange-200 bg-white text-slate-700 hover:bg-orange-50",
-                    ].join(" ")}
+            ) : period === "all" ? null : (
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Năm
+                  <select
+                    value={selectedYear}
+                    onChange={(event) => updateYear(Number(event.target.value))}
+                    className="h-10 rounded-xl border border-orange-200 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-800"
                   >
-                    {option.label}
-                  </button>
-                ))}
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {period === "week" || period === "month" ? (
+                  <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Tháng
+                    <select
+                      value={selectedMonth}
+                      onChange={(event) => updateMonth(Number(event.target.value))}
+                      className="h-10 rounded-xl border border-orange-200 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-800"
+                    >
+                      {monthOptions.map((month) => (
+                        <option key={month} value={month}>
+                          Tháng {month + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {period === "quarter" ? (
+                  <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Quý
+                    <select
+                      value={selectedQuarter}
+                      onChange={(event) => updateQuarter(Number(event.target.value))}
+                      className="h-10 rounded-xl border border-orange-200 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-800"
+                    >
+                      {quarterOptions.map((quarter) => (
+                        <option key={quarter} value={quarter}>
+                          Quý {quarter + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {period === "week" ? (
+                  <div className="flex flex-wrap gap-2">
+                    {weekOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setSelectedDate(option.value)}
+                        className={[
+                          "rounded-xl border px-4 py-2 text-sm font-semibold transition",
+                          startOfWeek(parseLocalDateValue(selectedDate)).getTime() ===
+                          parseLocalDateValue(option.value).getTime()
+                            ? "border-orange-500 bg-orange-500 text-white shadow-sm"
+                            : "border-orange-200 bg-white text-slate-700 hover:bg-orange-50",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
@@ -454,7 +601,7 @@ export default function StatisticsPage() {
               <BarChart data={cashFlowData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
                 <XAxis dataKey="name" />
-                <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
+                <YAxis tickFormatter={(value) => formatAxisCurrency(Number(value))} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
                 <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                   {cashFlowData.map((entry, index) => (
@@ -482,7 +629,7 @@ export default function StatisticsPage() {
 
       <section className="min-w-0 rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-lg font-bold text-slate-900">Thống kê theo danh mục</h2>
+          <h2 className="text-lg font-bold text-slate-900">Thống kê theo danh mục hệ thống</h2>
           <div className="flex flex-wrap gap-2 rounded-2xl border border-orange-100 bg-orange-50 p-1">
             {[
               { key: "ALL", label: "Tất cả" },
@@ -512,7 +659,7 @@ export default function StatisticsPage() {
               <BarChart data={categoryChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
                 <XAxis dataKey="name" />
-                <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
+                <YAxis tickFormatter={(value) => formatAxisCurrency(Number(value))} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
                 <Bar dataKey="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
                 <Bar dataKey="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
@@ -569,19 +716,106 @@ export default function StatisticsPage() {
       </section>
 
       <section className="min-w-0 rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Thống kê theo danh mục cá nhân</h2>
+
+        <div className="relative mt-5 h-80 min-w-0 overflow-hidden rounded-2xl">
+          <div className={hasPersonalCategoryData ? "min-w-0 h-full" : "pointer-events-none min-w-0 h-full opacity-30 blur-[1.5px]"}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={personalCategoryChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
+                <XAxis dataKey="name" />
+                <YAxis tickFormatter={(value) => formatAxisCurrency(Number(value))} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
+                <Bar dataKey="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {!hasPersonalCategoryData ? <EmptyOverlay /> : null}
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+            <h3 className="text-sm font-bold text-emerald-800">Top 5 danh mục thu cá nhân</h3>
+            <div className="mt-3 space-y-2">
+              {topPersonalIncomeCategories.length === 0 ? (
+                <p className="text-sm text-emerald-700">-</p>
+              ) : (
+                topPersonalIncomeCategories.map((category) => (
+                  <div
+                    key={category.categoryId}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="font-medium text-slate-800">{category.name}</span>
+                    <span className="font-bold text-emerald-700">
+                      {formatCurrency(category.income, data.displayCurrency)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+            <h3 className="text-sm font-bold text-orange-800">Top 5 danh mục chi cá nhân</h3>
+            <div className="mt-3 space-y-2">
+              {topPersonalExpenseCategories.length === 0 ? (
+                <p className="text-sm text-orange-700">-</p>
+              ) : (
+                topPersonalExpenseCategories.map((category) => (
+                  <div
+                    key={category.categoryId}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="font-medium text-slate-800">{category.name}</span>
+                    <span className="font-bold text-orange-700">
+                      {formatCurrency(category.expense, data.displayCurrency)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="min-w-0 rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Xu hướng thu chi</h2>
         <div className="mt-5 h-72 min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#fed7aa" />
               <XAxis dataKey="label" />
-              <YAxis tickFormatter={(value) => `${Number(value) / 1000000}tr`} />
+              <YAxis tickFormatter={(value) => formatAxisCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value), data.displayCurrency)} />
               <Bar dataKey="income" name="Thu" fill="#16a34a" radius={[8, 8, 0, 0]} />
               <Bar dataKey="expense" name="Chi" fill="#f97316" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
+        {period === "month" ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {trendData.length === 0 || trendData.every((item) => !item.transactionCount) ? (
+              <div className="rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                Không có dữ liệu trong kỳ này.
+              </div>
+            ) : (
+              trendData.map((item) => (
+                <div key={`${item.start}-${item.end}`} className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                  <p className="text-sm font-bold text-slate-900">{item.label}</p>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    {formatDateDisplay(item.start ?? selectedDate)} - {formatDateDisplay(item.end ?? selectedDate)}
+                  </p>
+                  <div className="mt-3 space-y-1 text-sm">
+                    <p className="font-semibold text-emerald-700">Thu: {formatCurrency(item.income, data.displayCurrency)}</p>
+                    <p className="font-semibold text-orange-700">Chi: {formatCurrency(item.expense, data.displayCurrency)}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="min-w-0 rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">

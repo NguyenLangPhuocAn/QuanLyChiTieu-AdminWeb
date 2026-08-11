@@ -15,6 +15,8 @@ type CategoryItem = {
   icon?: string | null;
   is_system?: boolean | null;
   user_id?: number | null;
+  owner_name?: string | null;
+  owner_email?: string | null;
 };
 
 type CategoryFormState = {
@@ -47,6 +49,14 @@ function getTypeClasses(type: CategoryType) {
 
 function getScopeLabel(category: CategoryItem) {
   return category.is_system ? "Hệ thống" : "Cá nhân";
+}
+
+function getOwnerLabel(category: CategoryItem) {
+  if (category.is_system) {
+    return "Dùng chung toàn hệ thống";
+  }
+
+  return category.owner_name || category.owner_email || `User #${category.user_id ?? "?"}`;
 }
 
 function getScopeClasses(category: CategoryItem) {
@@ -116,7 +126,7 @@ export default function CategoriesPage() {
   const loadCategories = async () => {
     try {
       setError("");
-      const data = await api<CategoryItem[]>("/categories");
+      const data = await api<CategoryItem[]>("/admin/categories");
       setCategories(data);
     } catch (caughtError) {
       setError(
@@ -222,7 +232,7 @@ export default function CategoriesPage() {
 
     try {
       setSubmitting(true);
-      const createdCategory = await api<CategoryItem>("/categories", "POST", {
+      const createdCategory = await api<CategoryItem>("/admin/categories", "POST", {
         name: formState.name.trim(),
         type: formState.type,
         is_system: formState.is_system,
@@ -230,7 +240,7 @@ export default function CategoriesPage() {
 
       if (iconFile) {
         await apiUploadFile(
-          `/categories/${createdCategory.id}/icon`,
+          `/admin/categories/${createdCategory.id}/icon`,
           iconFile,
           "file",
           "POST"
@@ -277,14 +287,14 @@ export default function CategoriesPage() {
       setSubmitting(true);
       setShowEditConfirm(false);
 
-      await api(`/categories/${selectedCategory.id}`, "PUT", {
+      await api(`/admin/categories/${selectedCategory.id}`, "PUT", {
         name: formState.name.trim(),
         type: formState.type,
       });
 
       if (iconFile) {
         await apiUploadFile(
-          `/categories/${selectedCategory.id}/icon`,
+          `/admin/categories/${selectedCategory.id}/icon`,
           iconFile,
           "file",
           "POST"
@@ -314,7 +324,7 @@ export default function CategoriesPage() {
       setSubmitting(true);
       setModalError("");
 
-      await api(`/categories/${selectedCategory.id}`, "DELETE");
+      await api(`/admin/categories/${selectedCategory.id}`, "DELETE");
       await fetchCategories();
       closeModal();
     } catch (caughtError) {
@@ -719,6 +729,9 @@ export default function CategoriesPage() {
                             </p>
                             <p className="mt-1 text-sm text-slate-500">
                               Mã danh mục {category.id}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-slate-500">
+                              {getOwnerLabel(category)}
                             </p>
                           </div>
                         </div>

@@ -18,6 +18,27 @@ type CurrentUser = {
   must_change_password?: boolean | number | null;
 };
 
+type ForgotStep = "EMAIL" | "OTP" | "PASSWORD";
+
+type ResetPasswordResponse = LoginResponse & {
+  message?: string;
+};
+
+const RESEND_COOLDOWN_SECONDS = 60;
+
+function getJwtRole(token?: string) {
+  if (!token) {
+    return "";
+  }
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? "")) as { role?: string };
+    return payload.role ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -35,7 +56,13 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<ForgotStep>("EMAIL");
   const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [forgotResetToken, setForgotResetToken] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [forgotCooldown, setForgotCooldown] = useState(0);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotMessage, setForgotMessage] = useState("");
   const [forgotError, setForgotError] = useState("");
@@ -64,10 +91,19 @@ function LoginContent() {
   }, [router]);
 
   useEffect(() => {
-    const googleError = searchParams.get("googleError");
-    const accessToken = searchParams.get("token");
-    const refreshToken = searchParams.get("refreshToken");
-    const mustChangePassword = searchParams.get("mustChangePassword") === "1";
+    const callbackParams = new URLSearchParams(searchParams.toString());
+
+    if (window.location.hash.length > 1) {
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+      hashParams.forEach((value, key) => {
+        callbackParams.set(key, value);
+      });
+    }
+
+    const googleError = callbackParams.get("googleError");
+    const accessToken = callbackParams.get("token");
+    const refreshToken = callbackParams.get("refreshToken");
+    const mustChangePassword = callbackParams.get("mustChangePassword") === "1";
 
     if (googleError) {
       const timer = window.setTimeout(() => {
@@ -84,6 +120,18 @@ function LoginContent() {
     saveAuthTokens({ token: accessToken, accessToken, refreshToken: refreshToken ?? undefined });
     router.replace(mustChangePassword ? "/change-password-first" : "/");
   }, [router, searchParams]);
+
+  useEffect(() => {
+    if (!forgotOpen || forgotCooldown <= 0) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setForgotCooldown((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [forgotCooldown, forgotOpen]);
 
   // validate dữ liệu nhập
   const validate = () => {
@@ -159,8 +207,32 @@ function LoginContent() {
     window.location.href = "http://localhost:3000/auth/google";
   };
 
-  const handleForgotPassword = async () => {
-    if (!forgotEmail.trim()) {
+  const resetForgotFlow = (nextEmail = "") => {
+    setForgotStep("EMAIL");
+    setForgotEmail(nextEmail);
+    setForgotOtp("");
+    setForgotResetToken("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+    setForgotCooldown(0);
+    setForgotError("");
+    setForgotMessage("");
+  };
+
+  const openForgotFlow = () => {
+    resetForgotFlow(email.trim().toLowerCase());
+    setForgotOpen(true);
+  };
+
+  const closeForgotFlow = () => {
+    setForgotOpen(false);
+    resetForgotFlow();
+  };
+
+  const requestForgotOtp = async (isResend = false) => {
+    const nextEmail = forgotEmail.trim().toLowerCase();
+
+    if (!nextEmail) {
       setForgotError("Vui lòng nhập email.");
       return;
     }
@@ -172,17 +244,107 @@ function LoginContent() {
       const response = await api<{ message: string }>(
         "/users/forgot-password",
         "POST",
-        { email: forgotEmail.trim() }
+        { email: nextEmail }
       );
-      setForgotMessage(response.message);
+      setForgotEmail(nextEmail);
+      setForgotOtp("");
+      setForgotResetToken("");
+      setForgotStep("OTP");
+      setForgotCooldown(RESEND_COOLDOWN_SECONDS);
+      setForgotMessage(isResend ? "Đã gửi lại mã OTP." : response.message);
     } catch (caughtError) {
       setForgotError(
-        caughtError instanceof Error ? caughtError.message : "Không thể gửi email đặt lại mật khẩu."
+        caughtError instanceof Error ? caughtError.message : "Không thể gửi mã xác nhận."
       );
     } finally {
       setForgotLoading(false);
     }
   };
+
+  const verifyForgotOtp = async () => {
+    if (!forgotOtp.trim()) {
+      setForgotError("Vui lòng nhập mã OTP.");
+      return;
+    }
+
+    try {
+      setForgotLoading(true);
+      setForgotError("");
+      setForgotMessage("");
+      const response = await api<{ message: string; reset_token: string }>(
+        "/users/verify-reset-otp",
+        "POST",
+        { email: forgotEmail, otp: forgotOtp.trim() }
+      );
+      setForgotResetToken(response.reset_token);
+      setForgotStep("PASSWORD");
+      setForgotMessage(response.message || "Xác thực mã thành công.");
+    } catch (caughtError) {
+      setForgotError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Mã OTP không hợp lệ hoặc đã hết hạn."
+      );
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const submitForgotPassword = async () => {
+    if (!forgotNewPassword || !forgotConfirmPassword) {
+      setForgotError("Vui lòng nhập mật khẩu mới và xác nhận mật khẩu.");
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError("Mật khẩu xác nhận chưa khớp.");
+      return;
+    }
+
+    try {
+      setForgotLoading(true);
+      setForgotError("");
+      setForgotMessage("");
+      const response = await api<ResetPasswordResponse>("/users/reset-password", "POST", {
+        reset_token: forgotResetToken,
+        new_password: forgotNewPassword,
+        confirm_password: forgotConfirmPassword,
+      });
+      const accessToken = response.accessToken ?? response.token;
+
+      setForgotMessage(response.message || "Đặt lại mật khẩu thành công.");
+
+      if (getJwtRole(accessToken) === "ADMIN") {
+        saveAuthTokens(response);
+        router.replace(response.mustChangePassword ? "/change-password-first" : "/");
+        return;
+      }
+
+      setTimeout(() => {
+        closeForgotFlow();
+        setError("Mật khẩu đã được đổi. Vui lòng đăng nhập bằng tài khoản admin.");
+      }, 1200);
+    } catch (caughtError) {
+      setForgotError(
+        caughtError instanceof Error ? caughtError.message : "Không thể đặt lại mật khẩu."
+      );
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const forgotTitle =
+    forgotStep === "EMAIL"
+      ? "Quên mật khẩu"
+      : forgotStep === "OTP"
+        ? "Nhập mã OTP"
+        : "Tạo mật khẩu mới";
+  const forgotCaption =
+    forgotStep === "EMAIL"
+      ? "Nhập email tài khoản. Hệ thống sẽ gửi mã OTP về email đó."
+      : forgotStep === "OTP"
+        ? `Mã OTP đã được gửi đến ${forgotEmail}.`
+        : "Nhập mật khẩu mới để hoàn tất đặt lại mật khẩu.";
 
   return (
     // background full màn hình
@@ -211,9 +373,11 @@ function LoginContent() {
               <Image
                 src="/finance.png"
                 alt="Minh hoa quan ly tai chinh"
-                width={320}
-                height={320}
-                className="w-[320px] drop-shadow-2xl"
+                width={384}
+                height={210}
+                priority
+                className="drop-shadow-2xl"
+                style={{ width: 320, height: "auto" }}
               />
             </div>
 
@@ -271,12 +435,7 @@ function LoginContent() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setForgotOpen(true);
-                    setForgotEmail(email);
-                    setForgotError("");
-                    setForgotMessage("");
-                  }}
+                  onClick={openForgotFlow}
                   className="mt-3 w-full text-center text-sm font-semibold text-orange-600 hover:text-orange-700"
                 >
                   Quên mật khẩu?
@@ -309,18 +468,76 @@ function LoginContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <div className="mb-5">
-              <h3 className="text-xl font-bold text-gray-900">Quên mật khẩu</h3>
+              <h3 className="text-xl font-bold text-gray-900">{forgotTitle}</h3>
               <p className="mt-2 text-sm leading-6 text-gray-600">
-                Nhập email tài khoản. Hệ thống sẽ gửi mật khẩu tạm thời về email đó.
+                {forgotCaption}
               </p>
             </div>
 
-            <input
-              value={forgotEmail}
-              onChange={(event) => setForgotEmail(event.target.value)}
-              className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
-              placeholder="Email"
-            />
+            {forgotStep === "EMAIL" ? (
+              <input
+                value={forgotEmail}
+                onChange={(event) => {
+                  setForgotEmail(event.target.value);
+                  setForgotError("");
+                  setForgotMessage("");
+                }}
+                className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                placeholder="Email"
+              />
+            ) : null}
+
+            {forgotStep === "OTP" ? (
+              <div className="space-y-3">
+                <input
+                  value={forgotOtp}
+                  onChange={(event) => {
+                    setForgotOtp(event.target.value.replace(/\D/g, "").slice(0, 6));
+                    setForgotError("");
+                    setForgotMessage("");
+                  }}
+                  className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-center text-xl font-bold tracking-normal outline-none transition focus:border-orange-400"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Mã OTP"
+                />
+                <button
+                  type="button"
+                  onClick={() => requestForgotOtp(true)}
+                  disabled={forgotLoading || forgotCooldown > 0}
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm font-bold text-orange-600 transition hover:bg-orange-50 disabled:opacity-60"
+                >
+                  {forgotCooldown > 0 ? `Gửi lại sau ${forgotCooldown}s` : "Gửi lại mã"}
+                </button>
+              </div>
+            ) : null}
+
+            {forgotStep === "PASSWORD" ? (
+              <div className="space-y-3">
+                <input
+                  type="password"
+                  value={forgotNewPassword}
+                  onChange={(event) => {
+                    setForgotNewPassword(event.target.value);
+                    setForgotError("");
+                    setForgotMessage("");
+                  }}
+                  className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                  placeholder="Mật khẩu mới"
+                />
+                <input
+                  type="password"
+                  value={forgotConfirmPassword}
+                  onChange={(event) => {
+                    setForgotConfirmPassword(event.target.value);
+                    setForgotError("");
+                    setForgotMessage("");
+                  }}
+                  className="w-full rounded-2xl border border-orange-100 px-4 py-3 text-sm outline-none transition focus:border-orange-400"
+                  placeholder="Xác nhận mật khẩu"
+                />
+              </div>
+            ) : null}
 
             {forgotError ? <p className="mt-3 text-sm text-red-600">{forgotError}</p> : null}
             {forgotMessage ? <p className="mt-3 text-sm text-emerald-700">{forgotMessage}</p> : null}
@@ -328,18 +545,30 @@ function LoginContent() {
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
-                onClick={() => setForgotOpen(false)}
+                onClick={closeForgotFlow}
                 className="flex-1 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
               >
                 Đóng
               </button>
               <button
                 type="button"
-                onClick={handleForgotPassword}
+                onClick={
+                  forgotStep === "EMAIL"
+                    ? () => requestForgotOtp()
+                    : forgotStep === "OTP"
+                      ? verifyForgotOtp
+                      : submitForgotPassword
+                }
                 disabled={forgotLoading}
                 className="flex-1 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-60"
               >
-                {forgotLoading ? "Đang gửi..." : "Gửi email"}
+                {forgotLoading
+                  ? "Đang xử lý..."
+                  : forgotStep === "EMAIL"
+                    ? "Gửi mã"
+                    : forgotStep === "OTP"
+                      ? "Xác nhận"
+                      : "Đổi mật khẩu"}
               </button>
             </div>
           </div>

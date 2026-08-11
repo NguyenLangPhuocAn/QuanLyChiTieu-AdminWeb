@@ -8,7 +8,8 @@ const pageTitles: Record<string, string> = {
   "/admin-profile": "Hồ sơ admin",
   "/categories": "Quản lý danh mục",
   "/statistics": "Thống kê",
-  "/logs": "Logs hệ thống",
+  "/notifications": "Thông Báo",
+  "/logs": "Nhật ký hệ thống",
 };
 
 export default function Header() {

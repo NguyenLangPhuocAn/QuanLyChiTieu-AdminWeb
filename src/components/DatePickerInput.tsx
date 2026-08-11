@@ -59,6 +59,10 @@ export default function DatePickerInput({
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const selectedValue = value || getTodayInputValue();
   const todayValue = getTodayInputValue();
+  const todayDate = parseLocalDateValue(todayValue);
+  const isViewingCurrentOrFutureMonth =
+    viewDate.getFullYear() > todayDate.getFullYear() ||
+    (viewDate.getFullYear() === todayDate.getFullYear() && viewDate.getMonth() >= todayDate.getMonth());
   const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
   const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
   const leadingBlanks = firstDay === 0 ? 6 : firstDay - 1;
@@ -146,7 +150,8 @@ export default function DatePickerInput({
             <button
               type="button"
               onClick={() => moveMonth(1)}
-              className="rounded-xl p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-700"
+              disabled={isViewingCurrentOrFutureMonth}
+              className="rounded-xl p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Tháng sau"
             >
               <FiChevronRight className="h-5 w-5" />
@@ -170,15 +175,19 @@ export default function DatePickerInput({
               const dayValue = toLocalDateValue(new Date(viewDate.getFullYear(), viewDate.getMonth(), day));
               const isSelected = Boolean(value) && dayValue === selectedValue;
               const isToday = dayValue === todayValue;
+              const isFuture = parseLocalDateValue(dayValue) > todayDate;
 
               return (
                 <button
                   key={dayValue}
                   type="button"
+                  disabled={isFuture}
                   onClick={() => handleSelectDate(dayValue)}
                   className={[
                     "h-9 rounded-xl text-sm font-semibold transition",
-                    isSelected
+                    isFuture
+                      ? "cursor-not-allowed text-slate-300"
+                      : isSelected
                       ? "bg-orange-500 text-white shadow-sm"
                       : isToday
                         ? "bg-orange-50 text-orange-700"

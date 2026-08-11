@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL, api, apiUploadFile } from "@/services/api";
 import DatePickerInput from "@/components/DatePickerInput";
 
@@ -80,12 +80,22 @@ function formatBirthday(value?: string | null) {
   return value.slice(0, 10);
 }
 
+function parseLocalDateValue(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return new Date(value);
+  }
+
+  return new Date(year, month - 1, day);
+}
+
 function formatDateDisplay(value?: string | null) {
   if (!value) {
     return "--";
   }
 
-  const date = new Date(value);
+  const date = parseLocalDateValue(value);
 
   if (Number.isNaN(date.getTime())) {
     return "--";
@@ -233,7 +243,7 @@ export default function UsersPage() {
     };
   }, [avatarPreviewUrl]);
 
-  const loadUsers = async (
+  const loadUsers = useCallback(async (
     overrides: Partial<{
       page: number;
       searchText: string;
@@ -286,7 +296,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, roleFilter, searchText, sortOption]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -294,7 +304,7 @@ export default function UsersPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [page, roleFilter, searchText, sortOption]);
+  }, [loadUsers]);
 
   const fetchUsers = async () => {
     setSearchText("");
@@ -552,7 +562,7 @@ export default function UsersPage() {
 
   const requestEditConfirmation = () => {
     if (!selectedUser?.id) {
-      setModalError("Không tìm thấy người dùng cần cập nhật..");
+      setModalError("Không tìm thấy người dùng cần cập nhật.");
       return;
     }
 
