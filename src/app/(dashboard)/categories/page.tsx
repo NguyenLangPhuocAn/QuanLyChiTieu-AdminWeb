@@ -22,13 +22,11 @@ type CategoryItem = {
 type CategoryFormState = {
   name: string;
   type: CategoryType;
-  is_system: boolean;
 };
 
 const defaultFormState: CategoryFormState = {
   name: "",
   type: "EXPENSE",
-  is_system: false,
 };
 
 const typeOptions: CategoryType[] = ["EXPENSE", "INCOME"];
@@ -185,7 +183,6 @@ export default function CategoriesPage() {
     setFormState({
       name: category.name ?? "",
       type: category.type ?? "EXPENSE",
-      is_system: Boolean(category.is_system),
     });
     setIconFile(null);
     setModalError("");
@@ -235,7 +232,7 @@ export default function CategoriesPage() {
       const createdCategory = await api<CategoryItem>("/admin/categories", "POST", {
         name: formState.name.trim(),
         type: formState.type,
-        is_system: formState.is_system,
+        is_system: true,
       });
 
       if (iconFile) {
@@ -499,20 +496,6 @@ export default function CategoriesPage() {
                       ))}
                     </select>
                   </label>
-
-                  {modalMode === "create" ? (
-                    <label className="flex items-center gap-3 rounded-2xl border border-orange-100 px-4 py-3 text-sm text-slate-700 md:col-span-2">
-                      <input
-                        type="checkbox"
-                        checked={formState.is_system}
-                        onChange={(event) =>
-                          updateField("is_system", event.target.checked)
-                        }
-                        className="h-4 w-4 rounded border-orange-300 text-orange-500"
-                      />
-                      Tạo danh mục hệ thống
-                    </label>
-                  ) : null}
 
                   <label className="space-y-2 md:col-span-2">
                     <span className="text-sm font-medium text-slate-700">
