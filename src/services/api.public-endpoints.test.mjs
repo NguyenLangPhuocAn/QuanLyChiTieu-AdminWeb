@@ -95,7 +95,7 @@ test("login skips stale session refresh and posts credentials directly", async (
   assert.equal(result.token, "new-access-token");
   assert.deepEqual(
     calls.map((call) => call.url),
-    ["http://localhost:3000/users/login"],
+    [`${apiModule.API_URL}/users/login`],
   );
 });
 
@@ -103,7 +103,7 @@ test("login shows backend credential error instead of session-expired message", 
   const { apiModule, context } = loadApiModule();
 
   context.fetch = async (url) => {
-    assert.equal(url, "http://localhost:3000/users/login");
+    assert.equal(url, `${apiModule.API_URL}/users/login`);
 
     return new Response(
       JSON.stringify({ message: "Email hoặc mật khẩu không đúng" }),

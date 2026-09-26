@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api, clearAuthTokens, saveAuthTokens } from "../../../services/api";
+import { API_URL, api, clearAuthTokens, saveAuthTokens } from "../../../services/api";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 
@@ -204,7 +204,7 @@ function LoginContent() {
 
   // login google
   const handleGoogleLogin = () => {
-    window.location.href = "http://localhost:3000/auth/google";
+    window.location.href = `${API_URL}/auth/google`;
   };
 
   const resetForgotFlow = (nextEmail = "") => {
