@@ -1,4 +1,6 @@
-export const API_URL = "https://specializing-pool-many-placement.trycloudflare.com";
+export const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/+$/, "");
 
 const ACCESS_TOKEN_KEY = "token";
 const REFRESH_TOKEN_KEY = "refreshToken";

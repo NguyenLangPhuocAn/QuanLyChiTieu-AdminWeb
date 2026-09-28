@@ -21,6 +21,7 @@ function loadApiModule() {
   const apiExports = {};
   const context = vm.createContext({
     exports: apiExports,
+    process: { env: { NEXT_PUBLIC_API_URL: "https://api.example.test/" } },
     console,
     Headers,
     Error,
